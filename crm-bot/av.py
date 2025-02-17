@@ -165,3 +165,98 @@ if __name__ == "__main__":
     
     # Consulta inválida
     print(agent.run("DELETE FROM tabela WHERE year = 2023"))
+    
+    
+    
+    new 
+    import os
+import yaml
+import re
+import pandas as pd
+import awswrangler as wr
+from datetime import datetime
+from dateutil.relativedelta import relativedelta
+from pathlib import Path
+from typing import TypedDict, Optional, Annotated
+from langchain_core.messages import AIMessage, BaseMessage
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_openai import ChatOpenAI
+from langgraph.graph import StateGraph, END
+
+# ====================
+# State Schema
+# ====================
+class AgentState(TypedDict):
+    question: str
+    filters: Optional[dict]
+    query: Optional[str]
+    data: Optional[pd.DataFrame]
+    response: Optional[str]
+    error: Optional[str]
+
+# ====================
+# Configurações Base
+# ====================
+class ConfigLoader:
+    @staticmethod
+    def load_table_config(table_name: str) -> dict:
+        with open(Path(f'config/tables/{table_name}.yaml'), 'r') as f:
+            return yaml.safe_load(f)['table_config']
+    
+    @staticmethod
+    def load_personas() -> dict:
+        with open(Path('config/prompts/personas.yaml'), 'r') as f:
+            return yaml.safe_load(f)
+
+# ====================
+# Módulo de Prompts
+# ====================
+class PromptManager:
+    def __init__(self):
+        self.personas = ConfigLoader.load_personas()
+    
+    def get_prompt(self, persona: str, **kwargs) -> str:
+        return self.personas[persona]['template'].format(**kwargs)
+
+# ====================
+# Gerenciador Athena
+# ====================
+class AthenaManager:
+    def __init__(self, table_name: str):
+        self.config = ConfigLoader.load_table_config(table_name)
+        self.validator = QueryValidator(self.config)
+    
+    def execute_query(self, query: str) -> pd.DataFrame:
+        validation = self.validator.validate(query)
+        if not validation['valid']:
+            raise ValueError(validation['error'])
+        
+        try:
+            return wr.athena.read_sql_query(
+                sql=query + f" LIMIT {self.config['security']['maximum_rows']}",
+                database=self.config['database'],
+                workgroup=self.config['workgroup'],
+                ctas_approach=True
+            )
+        except Exception as e:
+            raise RuntimeError(f"Erro Athena: {str(e)}")
+
+class QueryValidator:
+    def __init__(self, config: dict):
+        self.config = config
+    
+    def validate(self, query: str) -> dict:
+        if any(op in query.upper() for op in self.config['security']['forbidden_operations']):
+            return {'valid': False, 'error': 'Operação proibida'}
+        
+        required_partitions = ['year', 'month', 'canal']
+        for partition in required_partitions:
+            if not re.search(fr"{partition}\s*=\s*'[^']+'", query, re.IGNORECASE):
+                return {'valid': False, 'error': f"Filtro {partition} ausente ou formato incorreto"}
+        
+        return {'valid': True}
+
+# ====================
+# Núcleo do Agente
+# ====================
+    
