@@ -1,0 +1,7 @@
+langchain
+langgraph
+openai
+awswrangler
+pyyaml
+pandas
+python-dotenv
