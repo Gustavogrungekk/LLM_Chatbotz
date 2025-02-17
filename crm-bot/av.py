@@ -50,12 +50,15 @@ class AthenaManager:
             raise ValueError(validation['error'])
         
         try:
-            return wr.athena.read_sql_query(
+            df = wr.athena.read_sql_query(
                 sql=query + f" LIMIT {self.config['security']['maximum_rows']}",
                 database=self.config['database'],
                 workgroup=self.config['workgroup'],
                 ctas_approach=True
             )
+            if df.empty:
+                raise ValueError("Nenhum dado encontrado para a query.")
+            return df
         except Exception as e:
             raise RuntimeError(f"Erro Athena: {str(e)}")
 
@@ -131,6 +134,9 @@ class MrAgent:
     
     def generate_query(self, state: AgentState) -> AgentState:
         try:
+            if not state.get("filters"):
+                return {**state, "error": "Filtros não gerados corretamente"}
+            
             config = self.athena.config
             prompt = self.prompts.get_prompt(
                 "query_generator",
@@ -141,7 +147,9 @@ class MrAgent:
                 query_examples="\n".join([ex['sql'] for ex in config['query_examples']]),
                 max_rows=config['security']['maximum_rows']
             )
-            return {**state, "query": self.llm.invoke(prompt).content}
+            query = self.llm.invoke(prompt).content
+            print(f"Query gerada:\n{query}")  # Exibe a query gerada
+            return {**state, "query": query}
         except Exception as e:
             return {**state, "error": f"Erro geração query: {str(e)}"}
     
@@ -151,8 +159,6 @@ class MrAgent:
                 return {**state, "error": "Query não gerada corretamente"}
             
             df = self.athena.execute_query(state['query'])
-            if df.empty:
-                return {**state, "error": "Nenhum dado encontrado para a query"}
             return {**state, "data": df}
         except Exception as e:
             return {**state, "error": str(e)}
