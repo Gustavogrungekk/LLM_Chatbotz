@@ -1,215 +1,197 @@
-import yaml
+import json
 import pandas as pd
-from typing import TypedDict, Sequence, Annotated
-from datetime import datetime
-from langchain_core.messages import HumanMessage, AIMessage, BaseMessage, ToolMessage
-from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
-from langchain_openai import ChatOpenAI
-from langgraph.graph import StateGraph
-from langchain_core.tools import ToolInvocation
-from langgraph.prebuilt import ToolNode
-from langchain_core.utils.function_calling import convert_to_openai_tool
 import awswrangler as wr
+import yaml
+from typing import TypedDict, Annotated, Sequence, List
+import operator
+from pathlib import Path
+
+# Self-defined functions
+from util_functions import get_last_chains
+
+# Langchain
+from langchain_openai import ChatOpenAI
+from langchain_core.utils.function_calling import convert_to_openai_tool
+from langchain_core.messages import BaseMessage, HumanMessage, ToolMessage, AIMessage
+from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+
+# Langgraph
+from langgraph.prebuilt import ToolExecutor, ToolInvocation
+from langgraph.graph import StateGraph, END
+
+# Date and time handling
+from datetime import datetime
 from dateutil.relativedelta import relativedelta
 
-# Load the metadata from the YAML file
-def load_table_metadata(file_path: str):
-    with open(file_path, 'r') as file:
-        return yaml.safe_load(file)
+# Load table metadata
+with open('table_metadata.yaml') as f:
+    TABLE_METADATA = yaml.safe_load(f)
 
-# Agent state definition
 class AgentState(TypedDict):
     messages: Annotated[Sequence[BaseMessage], operator.add]
     actions: Annotated[Sequence[list], operator.add]
-    inter: pd.DataFrame
-    question: str
-    memory: str
-    date_filter: list
-    attempts_count: int
-    agent: str
-    metadados: str
-    table_desc: str
-    additional_filters: str
-    query: str  # Novo campo para armazenar a query Athena
+    inter: pd.DataFrame 
+    question: str 
+    memory: str 
+    date_filter: list 
+    attempts_count: int 
+    agent: str 
+    metadados: str 
+    table_desc: str 
+    additional_filters: str 
+    query: str 
 
-# Athena tool to interact with the database
-class AthenaTool:
-    def __init__(self, metadata: dict):
-        self.database = metadata['table_config']['database']
-        self.workgroup = metadata['table_config']['workgroup']
-        self.metadata = metadata
-
-    def run_query(self, query: str) -> pd.DataFrame:
-        try:
-            if not self.validate_query(query):
-                raise ValueError("Query contém operações perigosas")
+class AthenaQueryTool:
+    def __init__(self):
+        self.metadata = TABLE_METADATA
+        self._last_ref = None
+        
+    def get_query_guidelines(self):
+        return "\n".join(self.metadata['query_guidelines'])
+    
+    def get_column_context(self):
+        return "\n".join([f"{col['name']} ({col['type']}): {col['description']}" 
+                         for col in self.metadata['columns']])
+    
+    def get_partition_filters(self, date_filter):
+        if not date_filter or date_filter[0] == '0000-00-00':
+            return ""
             
-            inicio = datetime.now()
-            df = wr.athena.read_sql_query(
-                sql=query,
-                database=self.database,
-                workgroup=self.workgroup,
-                ctas_approach=True
-            )
-            print(f"TEMPO EXEC ATHENA: {datetime.now() - inicio}")
-            return df
-        except Exception as e:
-            print(f"Erro no Athena: {str(e)}")
-            return pd.DataFrame()
+        years_months = set()
+        for date_str in date_filter:
+            if pd.isnull(pd.to_datetime(date_str, errors='coerce')):
+                continue
+            dt = datetime.strptime(date_str, "%Y-%m-%d")
+            years_months.add((str(dt.year), f"{dt.month:02d}"))
+        
+        partition_filters = []
+        for year, month in years_months:
+            partition_filters.append(f"(year = '{year}' AND month = '{month}')")
+        
+        return " AND ".join(partition_filters) if partition_filters else ""
 
-    def validate_query(self, query: str) -> bool:
-        forbidden = self.metadata['table_config']['security']['forbidden_operations']
-        return not any(cmd in query.upper() for cmd in forbidden)
+    def generate_sql_query(self, question: str, date_filter: list, additional_filters: str = "") -> str:
+        base_query = f"SELECT * FROM {self.metadata['table_config']['name']} "
+        
+        # Add WHERE clause with partitions
+        where_clauses = []
+        partition_filter = self.get_partition_filters(date_filter)
+        if partition_filter:
+            where_clauses.append(partition_filter)
+        
+        # Add additional filters
+        if additional_filters:
+            where_clauses.append(additional_filters)
+        
+        # Add security filters
+        where_clauses.append(" AND ".join([
+            f"{col['name']} NOT IN ({','.join(map(repr, col['ignore_values']))}"
+            for col in self.metadata['columns'] if col['ignore_values']
+        ]))
+        
+        if where_clauses:
+            base_query += "WHERE " + " AND ".join(where_clauses)
+        
+        # Add security limits
+        base_query += f"\nLIMIT {self.metadata['table_config']['security']['maximum_rows']}"
+        
+        return base_query
 
-# Main Agent
 class MrAgent:
-    def __init__(self, metadata_file_path: str):
-        self.table_metadata = load_table_metadata(metadata_file_path)
-        self.athena_tool = AthenaTool(self.table_metadata)
-        self._setup_prompts()
-        self._setup_models()
-        self._setup_tools()
+    def __init__(self):
+        self.athena_tool = AthenaQueryTool()
+        self.init_prompts()
+        self.init_models()
         self.build_workflow()
 
-    # Setup prompts based on metadata
-    def _setup_prompts(self):
+    def init_prompts(self):
+        # Date prompt remains similar but adjusted for Athena partitions
         self.date_prompt = ChatPromptTemplate.from_messages([
-            ("system", """Como especialista em datas, extraia intervalos relevantes seguindo:
-             - Formato Athena DATE 'YYYY-MM-DD'
-             - Use BETWEEN para intervalos
-             - Última data disponível: {last_ref}
-             Exemplos: 
-             * Último mês → WHERE data_execucao BETWEEN DATE '2024-05-01' AND DATE '2024-05-31'
-             * Semana passada → WHERE data_execucao BETWEEN DATE '2024-06-10' AND DATE '2024-06-16'""")
+            ("system", """Como analista de dados brasileiro especialista em AWS Athena, extraia informações de data para partições.
+             Sempre retorne datas no formato 'YYYY-MM-DD'. Use filtros de partição year/month."""),
+            MessagesPlaceholder(variable_name="memory"),
+            ("user", '{question}')
         ])
 
-        self.mr_camp_prompt_str = ChatPromptTemplate.from_messages([
-            ("system", f"""Você é um gerador de queries SQL para Athena. Regras:
-            1. Use sempre a tabela 'gold'
-            2. Colunas textuais em MAIÚSCULAS com UPPER()
-            3. Filtre datas usando: {self.athena_tool.metadata}
-            4. Formato de data: DATE 'YYYY-MM-DD'
-            5. Limite resultados com LIMIT 1000
-            6. Inclua safra quando relevante
-            Exemplos:
-            - "Quantos clientes no RJ?" → SELECT COUNT(*) FROM gold WHERE UPPER(estado) = 'RJ'
-            - "Média de taxas por segmento" → SELECT segmento, AVG(taxa_resposta) FROM gold GROUP BY segmento""")
+        # Updated prompt for SQL generation
+        self.mr_camp_prompt_str = f"""
+        Como engenheiro de dados especializado em AWS Athena, gere queries SQL seguindo estas regras:
+        {self.athena_tool.get_query_guidelines()}
+        
+        Colunas disponíveis:
+        {self.athena_tool.get_column_context()}
+        
+        Diretrizes:
+        - Use sempre filtros de partição year/month
+        - Formate valores de data como strings
+        - Use COUNT(DISTINCT CASE WHEN) para métricas binárias
+        - Limite resultados a {TABLE_METADATA['table_config']['security']['maximum_rows']} linhas
+        
+        Exemplos válidos:
+        {chr(10).join([ex['sql'] for ex in TABLE_METADATA['query_examples']]}
+        """
+
+        self.mr_camp_output = ChatPromptTemplate.from_messages([
+            ("system", self.mr_camp_prompt_str),
+            MessagesPlaceholder(variable_name="messages", n_messages=1)
         ])
 
-        self.resposta_prompt_desc = ChatPromptTemplate.from_messages([
-            ("system", """Valide e formate respostas considerando:
-             - Dados do Athena
-             - Formato Markdown
-             - Inclua período das datas
-             - Destaque métricas principais""")
-        ])
+    def init_models(self):
+        self.tools = [convert_to_openai_tool(self.athena_tool.generate_sql_query)]
+        self.tool_executor = ToolExecutor([self.athena_tool.generate_sql_query])
+        
+        self.model_mr_camp = (
+            self.mr_camp_output 
+            | ChatOpenAI(model="gpt-4-0125-preview", temperature=0)
+            .bind_tools(self.tools, tool_choice="generate_sql_query")
+        )
 
-    # Setup models with OpenAI integration
-    def _setup_models(self):
-        self.model_mr_camp = self.mr_camp_prompt_str | ChatOpenAI(model="gpt-4", temperature=0)
-        self.resposta_model = self.resposta_prompt_desc | ChatOpenAI(model="gpt-4", temperature=0)
-
-    # Setup tools (wrapped Athena query function)
-    def _setup_tools(self):
-        self.athena_tool_func = convert_to_openai_tool(self.athena_tool.run_query)
-        self.tool_executor = ToolNode(self.athena_tool_func)
-
-    # Build the workflow with LangGraph
     def build_workflow(self):
         workflow = StateGraph(AgentState)
-        
-        workflow.add_node("date_extraction", self.extract_dates)
-        workflow.add_node("generate_query", self.generate_athena_query)
-        workflow.add_node("execute_query", self.execute_athena_query)
-        workflow.add_node("format_response", self.format_response)
-
-        workflow.set_entry_point("date_extraction")
-        
-        workflow.add_edge("date_extraction", "generate_query")
+        workflow.add_node("generate_query", self.generate_query)
+        workflow.add_node("execute_query", self.execute_query)
+        workflow.set_entry_point("generate_query")
         workflow.add_edge("generate_query", "execute_query")
-        workflow.add_edge("execute_query", "format_response")
-        workflow.add_edge("format_response", END)
-
+        workflow.add_edge("execute_query", END)
         self.app = workflow.compile()
 
-    # Extract date filter from user input
-    def extract_dates(self, state: AgentState):
-        question = state['question']
-        last_ref = datetime.now().strftime('%Y-%m-%d')
-        
-        date_chain = self.date_prompt.partial(last_ref=last_ref) | ChatOpenAI(model="gpt-4")
-        date_filter = date_chain.invoke({"question": question}).content
-        
-        return {"date_filter": date_filter}
+    def generate_query(self, state):
+        response = self.model_mr_camp.invoke(state)
+        return {"messages": [response], "query": response.tool_calls[0]['args']['question']}
 
-    # Generate Athena query using the model and metadata
-    def generate_athena_query(self, state: AgentState):
-        question = state['question']
-        date_filter = state.get('date_filter', '')
-        
-        full_prompt = f"""
-        Pergunta: {question}
-        Filtro de datas: {date_filter}
-        Partições: {self.table_metadata['table_config']['partitions']}
-        Metadados: {self.table_metadata['table_config']}
-        
-        Gere uma query SQL válida para o Athena seguindo:
-        - Use apenas colunas existentes
-        - Formate datas corretamente
-        - Adicione LIMIT 1000
-        """
-        
-        response = self.model_mr_camp.invoke(full_prompt)
-        return {"query": response.content}
-
-    # Execute the Athena query
-    def execute_athena_query(self, state: AgentState):
-        query = state['query']
-        
+    def execute_query(self, state):
         try:
-            df = self.athena_tool.run_query(query)
-            return {"inter": df, "messages": [f"Query executada com sucesso. {len(df)} linhas retornadas."]}  # Return success
+            query = state['query']
+            df = wr.athena.read_sql_query(
+                sql=query,
+                database=TABLE_METADATA['table_config']['database'],
+                workgroup=TABLE_METADATA['table_config']['workgroup'],
+                ctas_approach=True
+            )
+            return {
+                "messages": [AIMessage(content=f"Resultado da query:\n{df.head().to_markdown()}")],
+                "inter": df
+            }
         except Exception as e:
             error_msg = f"Erro na query: {str(e)}"
-            return {"messages": [error_msg], "inter": pd.DataFrame()}
+            return {"messages": [AIMessage(content=error_msg)]}
 
-    # Format the response to the user
-    def format_response(self, state: AgentState):
-        df = state.get('inter', pd.DataFrame())
-        question = state['question']
-        
-        if not df.empty:
-            markdown_table = df.head(10).to_markdown()
-            response = f"""
-            **Resposta para**: {question}
-            **Período**: {state.get('date_filter', 'N/A')}
-            **Dados**:
-            {markdown_table}
-            """
-        else:
-            response = "Não foi possível obter dados para esta consulta."
-        
-        return {"messages": [AIMessage(content=response)]}
-
-    # Main run method to execute the agent workflow
-    def run(self, question: str):
+    def run(self, context):
         inputs = {
-            "question": question,
-            "messages": [],
-            "actions": [],
+            "messages": [HumanMessage(content=context['messages'][-1]["content"])],
+            "question": context['messages'][-1]["content"],
+            "memory": context['messages'][:-1],
             "attempts_count": 0
         }
         
-        final_response = None
-        for output in self.app.stream(inputs):
-            for key, value in output.items():
-                if key == "format_response":
-                    final_response = value['messages'][0].content
-        
-        return final_response
+        result = self.app.invoke(inputs)
+        return result['messages'][-1].content, result.get('inter', pd.DataFrame())
 
-# Example usage
-if __name__ == "__main__":
-    agent = MrAgent(metadata_file_path="path_to_table_metadata.yaml")
-    resposta = agent.run("Qual a taxa média de resposta por segmento no último mês?")
-    print(resposta)
+# Athena query execution function (separate for reuse)
+def run_query(query: str):
+    return wr.athena.read_sql_query(
+        sql=query,
+        database=TABLE_METADATA['table_config']['database'],
+        workgroup=TABLE_METADATA['table_config']['workgroup'],
+        ctas_approach=True
+    )
