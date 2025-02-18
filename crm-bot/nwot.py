@@ -1,250 +1,139 @@
-O erro `cannot import name 'AgentState' from 'langgraph.graph'` indica que a classe `AgentState` não está disponível no módulo `langgraph.graph`. Isso pode acontecer devido a uma incompatibilidade de versão ou porque a classe foi movida/renomeada em versões mais recentes da biblioteca.
+O erro `FOUND edge ending at unknown node 'END'` ocorre porque o nó `"END"` não foi definido no grafo de estados (`StateGraph`). No `StateGraph`, todos os nós referenciados nas arestas (`edges`) devem ser explicitamente definidos usando o método `add_node`.
 
-Para resolver esse problema, você pode fazer o seguinte:
+No seu código, você está tentando adicionar uma aresta que aponta para o nó `"END"`, mas esse nó não foi criado. Para corrigir isso, você precisa definir o nó `"END"` ou ajustar o fluxo do grafo para não depender de um nó inexistente.
 
-### 1. **Verifique a Documentação do `langgraph`**
-   - Consulte a documentação oficial da biblioteca `langgraph` para confirmar se a classe `AgentState` ainda existe e como ela deve ser usada.
-   - Se a classe foi renomeada ou movida, você precisará ajustar o código de acordo.
+### Solução
 
-### 2. **Substitua `AgentState` por um Dicionário**
-   Se você não encontrar a classe `AgentState` na documentação, uma solução simples é substituí-la por um dicionário Python comum. O `AgentState` provavelmente era usado para armazenar o estado do agente, e um dicionário pode cumprir o mesmo papel.
+Aqui estão duas abordagens para resolver o problema:
 
-   Substitua:
-   ```python
-   from langchain.agents import StateGraph, AgentState
-   ```
+---
 
-   Por:
-   ```python
-   from langchain.agents import StateGraph
-   ```
+#### **1. Adicionar o Nó `"END"` ao Grafo**
 
-   E, no método `build_workflow`, substitua:
-   ```python
-   workflow = StateGraph(AgentState)
-   ```
+Se você deseja que o fluxo termine em um nó chamado `"END"`, você precisa definir esse nó explicitamente. Aqui está como fazer isso:
 
-   Por:
-   ```python
-   workflow = StateGraph(dict)  # Usa um dicionário para armazenar o estado
-   ```
+```python
+def build_workflow(self):
+    # Criação do fluxo de trabalho
+    workflow = StateGraph(dict)  # Usa um dicionário para armazenar o estado
+    
+    # Adicionando os nós ao fluxo de trabalho
+    workflow.add_node("generate_query", self.generate_query)
+    workflow.add_node("execute_query", self.execute_query)
+    workflow.add_node("END", lambda state: state)  # Nó final que não faz nada
+    
+    # Definindo o ponto de entrada
+    workflow.set_entry_point("generate_query")
+    
+    # Adicionando transições de estado
+    workflow.add_edge("generate_query", "execute_query")
+    workflow.add_edge("execute_query", "END")  # Transição para o nó final
+    
+    # Compilando o fluxo de trabalho
+    self.app = workflow
+    self.app.compile()
+```
 
-   Isso deve resolver o problema, pois o `StateGraph` pode usar um dicionário para armazenar o estado do agente.
+Neste exemplo:
+- O nó `"END"` foi adicionado ao grafo usando `workflow.add_node`.
+- O nó `"END"` não faz nada além de retornar o estado atual (`lambda state: state`).
+- A aresta `workflow.add_edge("execute_query", "END")` agora é válida, pois o nó `"END"` foi definido.
 
-### 3. **Atualize o Código Completo**
-   Aqui está o código revisado com a substituição de `AgentState` por um dicionário:
+---
 
-   ```python
-   import yaml
-   import pandas as pd
-   import awswrangler as wr
-   from datetime import datetime
-   from langchain.prompts import ChatPromptTemplate, MessagesPlaceholder
-   from langchain.schema import HumanMessage, AIMessage
-   from langchain.agents import StateGraph
+#### **2. Remover a Referência ao Nó `"END"`**
 
-   # Load table metadata
-   with open('chatbot/app/config/tables/table_metadata.yaml', 'r') as f:
-       TABLE_METADATA = yaml.safe_load(f)
+Se você não precisa de um nó final explícito, pode simplesmente remover a aresta que aponta para `"END"` e permitir que o fluxo termine após a execução do nó `"execute_query"`. Aqui está como fazer isso:
 
-   # Load table persona
-   with open('chatbot/app/config/prompts/personas.yaml', 'r') as f:
-       TABLE_PERSONA = yaml.safe_load(f)
+```python
+def build_workflow(self):
+    # Criação do fluxo de trabalho
+    workflow = StateGraph(dict)  # Usa um dicionário para armazenar o estado
+    
+    # Adicionando os nós ao fluxo de trabalho
+    workflow.add_node("generate_query", self.generate_query)
+    workflow.add_node("execute_query", self.execute_query)
+    
+    # Definindo o ponto de entrada
+    workflow.set_entry_point("generate_query")
+    
+    # Adicionando transições de estado
+    workflow.add_edge("generate_query", "execute_query")
+    
+    # Compilando o fluxo de trabalho
+    self.app = workflow
+    self.app.compile()
+```
 
-   class MrAgent:
+Neste exemplo:
+- A aresta `workflow.add_edge("execute_query", "END")` foi removida.
+- O fluxo termina após a execução do nó `"execute_query"`.
 
-       def __init__(self):
-           self.athena_tool = AthenaQueryTool()  # Instância do AthenaQueryTool
-           self.init_prompts()
-           self.init_models()
-           self.build_workflow()
+---
 
-       def init_prompts(self):
-           # Inicializando os prompts
-           self.date_prompt = ChatPromptTemplate.from_messages([
-               ("system", """Como analista de dados brasileiro especialista em AWS Athena, extraia informações de data para partições. Sempre retorne datas no formato 'YYYY-MM-DD'. Use filtros de partição year/month/ e canal se necessário."""),
-               MessagesPlaceholder(variable_name="memory"),
-               ("user", '{question}')
-           ])
-           
-           self.mr_camp_prompt_str = f"""
-           Como engenheiro de dados especializado em AWS Athena, gere queries SQL seguindo estas regras:
-           
-           {self.athena_tool.get_query_guidelines()}
-           
-           Colunas disponíveis:
-           {self.athena_tool.get_column_context()}
-           
-           Diretrizes:
-           - Use sempre filtros de partição year/month e canal se especificado pelo usuário
-           - Formate valores de data como strings
-           - Use COUNT (DISTINCT CASE WHEN) para métricas binárias
-           - Limite resultados a {self.athena_tool.metadata['table_config']['security']['maximum_rows']} linhas
-           
-           Exemplos válidos:
-           {chr(10).join((ex['sql'] for ex in self.athena_tool.metadata['table_config']['query_examples']))}
-           """
-           
-           self.mr_camp_output = ChatPromptTemplate.from_messages([
-               ("system", self.mr_camp_prompt_str),
-               MessagesPlaceholder(variable_name="messages", n_messages=-1)
-           ])
+### Escolha a Abordagem Correta
 
-       def init_models(self):
-           # Inicialização de modelos (caso necessário)
-           pass
+- Use a **abordagem 1** se você precisa de um nó final explícito (`"END"`) para realizar alguma ação ou limpeza antes de encerrar o fluxo.
+- Use a **abordagem 2** se o fluxo pode terminar naturalmente após a execução do último nó (`"execute_query"`).
 
-       def build_workflow(self):
-           # Criação do fluxo de trabalho
-           workflow = StateGraph(dict)  # Usa um dicionário para armazenar o estado
-           
-           # Adicionando as funções ao fluxo de trabalho
-           workflow.add_node("generate_query", self.generate_query)
-           workflow.add_node("execute_query", self.execute_query)
-           
-           # Definindo o ponto de entrada
-           workflow.set_entry_point("generate_query")
-           
-           # Adicionando transições de estado
-           workflow.add_edge("generate_query", "execute_query")
-           workflow.add_edge("execute_query", "END")
-           
-           # Compilando o fluxo de trabalho
-           self.app = workflow
-           self.app.compile()
+---
 
-       def generate_query(self, state: dict) -> dict:
-           # Função para gerar a consulta SQL com base no estado atual
-           response = self.model_mr_camp.invoke(state)
-           return {
-               "messages": [response],
-               "query": response.tool_calls[0]['args']['date_filter']
-           }
+### Código Completo Corrigido (Abordagem 1)
 
-       def execute_query(self, state: dict) -> dict:
-           # Função para executar a consulta gerada
-           try:
-               query = state['query']  # Recupera a query gerada
-               print(f"Query gerada: {query}")  # Exibe a query gerada para homologação
-               
-               # Executando a query usando Athena (ajuste conforme necessário)
-               df = wr.athena.read_sql_query(
-                   sql_query=query,
-                   database=self.athena_tool.metadata['table_config']['database'],
-                   workgroup=self.athena_tool.metadata['table_config']['workgroup'],
-                   ctas_approach=True
-               )
-               
-               # Exibe o resultado da query
-               result_message = f"Resultado da query: \n{df.head().to_markdown()}"
-               print(result_message)
-               
-               return {
-                   "messages": [AIMessage(content=result_message)],
-                   "inter": df  # Retorna o DataFrame como 'inter'
-               }
-           except Exception as e:
-               # Em caso de erro, exibe a mensagem de erro
-               error_msg = f"Erro na query: {str(e)}"
-               return {
-                   "messages": [AIMessage(content=error_msg)]
-               }
+Aqui está o código completo com a abordagem 1 (adicionando o nó `"END"`):
 
-       def run(self, context: dict) -> dict:
-           # Função para rodar o agente com o contexto fornecido
-           inputs = {
-               "messages": [HumanMessage(content=context['messages'][-1]["content"])],
-               "question": context['messages'][-1]["content"],
-               "memory": context['messages'][:-1],  # Atualizado para pegar toda a memória anterior
-               "attempts_count": 0
-           }
-           
-           # Inicia o fluxo de trabalho
-           result = self.app.invoke(inputs)
-           
-           # Retorna o resultado das mensagens e o DataFrame (se houver)
-           return result['messages'][-1].content, result.get('inter', pd.DataFrame())
+```python
+def build_workflow(self):
+    # Criação do fluxo de trabalho
+    workflow = StateGraph(dict)  # Usa um dicionário para armazenar o estado
+    
+    # Adicionando os nós ao fluxo de trabalho
+    workflow.add_node("generate_query", self.generate_query)
+    workflow.add_node("execute_query", self.execute_query)
+    workflow.add_node("END", lambda state: state)  # Nó final que não faz nada
+    
+    # Definindo o ponto de entrada
+    workflow.set_entry_point("generate_query")
+    
+    # Adicionando transições de estado
+    workflow.add_edge("generate_query", "execute_query")
+    workflow.add_edge("execute_query", "END")  # Transição para o nó final
+    
+    # Compilando o fluxo de trabalho
+    self.app = workflow
+    self.app.compile()
+```
 
-       def run_query(self, query: str):
-           # Função para executar diretamente uma consulta Athena
-           return wr.athena.read_sql_query(
-               sql_query=query,
-               database=self.athena_tool.metadata['table_config']['database'],
-               workgroup=self.athena_tool.metadata['table_config']['workgroup'],
-               ctas_approach=False  # Definido como False aqui
-           )
+---
 
-   class AthenaQueryTool:
+### Código Completo Corrigido (Abordagem 2)
 
-       def __init__(self):
-           # Supondo que 'TABLE_METADATA' é carregado de algum lugar
-           self.metadata = TABLE_METADATA  # Isso é apenas um exemplo, altere conforme necessário
-           self._last_ref = None
+Aqui está o código completo com a abordagem 2 (removendo a referência ao nó `"END"`):
 
-       def get_query_guidelines(self):
-           return "\n".join(self.metadata['query_guidelines'])
+```python
+def build_workflow(self):
+    # Criação do fluxo de trabalho
+    workflow = StateGraph(dict)  # Usa um dicionário para armazenar o estado
+    
+    # Adicionando os nós ao fluxo de trabalho
+    workflow.add_node("generate_query", self.generate_query)
+    workflow.add_node("execute_query", self.execute_query)
+    
+    # Definindo o ponto de entrada
+    workflow.set_entry_point("generate_query")
+    
+    # Adicionando transições de estado
+    workflow.add_edge("generate_query", "execute_query")
+    
+    # Compilando o fluxo de trabalho
+    self.app = workflow
+    self.app.compile()
+```
 
-       def get_column_context(self):
-           return "\n".join([f"{col['name']} ({col['type']}): {col['description']}" for col in self.metadata['columns']])
+---
 
-       def get_partition_filters(self, date_filter):
-           if not date_filter or date_filter[0] == '0000-00-00':
-               return ""
+### Teste o Código
 
-           years_months = set()
-           for date_str in date_filter:
-               if pd.isnull(pd.to_datetime(date_str, errors='coerce')):
-                   continue
-               dt = datetime.strptime(date_str, "%Y-%m-%d")
-               years_months.add((str(dt.year), f"{dt.month:02d}"))
+Após aplicar uma das abordagens acima, execute o código novamente. O erro `FOUND edge ending at unknown node 'END'` deve ser resolvido, e o fluxo do grafo funcionará conforme o esperado.
 
-           partition_filters = []
-           for year, month in years_months:
-               partition_filters.append(f"(year = '{year}' AND month = '{month}')")
-
-           return " AND ".join(partition_filters) if partition_filters else ""
-
-       def generate_sql_query(self, date_filter: list, additional_filters: str = "") -> str:
-           base_query = f"SELECT * FROM {self.metadata['table_config']['name']}"
-           
-           # Adiciona WHERE com filtros de partição
-           where_clauses = []
-           partition_filter = self.get_partition_filters(date_filter)
-           if partition_filter:
-               where_clauses.append(partition_filter)
-
-           # Adiciona filtros adicionais
-           if additional_filters:
-               where_clauses.append(additional_filters)
-
-           # Adiciona filtros de segurança
-           where_clauses.append(" AND ".join([
-               f"{col['name']} NOT IN ({','.join(map(repr, col['ignore_values']))})"
-               for col in self.metadata['columns'] if col['ignore_values']
-           ]))
-
-           if where_clauses:
-               base_query += " WHERE " + " AND ".join(where_clauses)
-
-           # Adiciona o limite de segurança
-           base_query += f"\nLIMIT {self.metadata['table_config']['security']['maximum_rows']}"
-
-           return base_query
-
-
-
-
-AXASASASASAS
-python
-Copy
-self.mr_camp_output = ChatPromptTemplate.from_messages([
-    ("system", self.mr_camp_prompt_str),
-    MessagesPlaceholder(variable_name="messages", n_messages=-1)  # Remova o n_messages
-])
-Por:
-
-python
-Copy
-self.mr_camp_output = ChatPromptTemplate.from_messages([
-    ("system", self.mr_camp_prompt_str),
-    MessagesPlaceholder(variable_name="messages")  # Sem n_messages
+Se você ainda encontrar problemas, verifique se todos os nós referenciados nas arestas estão definidos corretamente no grafo.
