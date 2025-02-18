@@ -199,5 +199,5 @@ class MrAgent:
 # Exemplo de uso
 if __name__ == "__main__":
     agent = MrAgent()
-    resposta = agent.run("Qual a taxa de conversão do canal VAI em janeiro de 2024?")
+    resposta = agent.run("Qual a taxa de conversão em janeiro de 2024?")
     print("\nResposta final:\n", resposta)
