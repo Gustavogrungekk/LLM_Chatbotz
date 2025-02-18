@@ -1,15 +1,23 @@
+import yaml
+import pandas as pd
 from typing import TypedDict, Sequence, Annotated
 from datetime import datetime
-import pandas as pd
 from langchain_core.messages import HumanMessage, AIMessage, BaseMessage, ToolMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_openai import ChatOpenAI
 from langgraph.graph import StateGraph
+from langchain_core.tools import ToolInvocation
 from langgraph.prebuilt import ToolNode
 from langchain_core.utils.function_calling import convert_to_openai_tool
 import awswrangler as wr
 from dateutil.relativedelta import relativedelta
 
+# Load the metadata from the YAML file
+def load_table_metadata(file_path: str):
+    with open(file_path, 'r') as file:
+        return yaml.safe_load(file)
+
+# Agent state definition
 class AgentState(TypedDict):
     messages: Annotated[Sequence[BaseMessage], operator.add]
     actions: Annotated[Sequence[list], operator.add]
@@ -24,11 +32,12 @@ class AgentState(TypedDict):
     additional_filters: str
     query: str  # Novo campo para armazenar a query Athena
 
+# Athena tool to interact with the database
 class AthenaTool:
-    def __init__(self):
-        self.database = 'database_w1'
-        self.workgroup = 'tbl_coeres_painel_anomes_v1_gold'
-        self.metadata = self.get_metadata()
+    def __init__(self, metadata: dict):
+        self.database = metadata['table_config']['database']
+        self.workgroup = metadata['table_config']['workgroup']
+        self.metadata = metadata
 
     def run_query(self, query: str) -> pd.DataFrame:
         try:
@@ -48,50 +57,21 @@ class AthenaTool:
             print(f"Erro no Athena: {str(e)}")
             return pd.DataFrame()
 
-    def get_metadata(self) -> str:
-        return """
-        [METADADOS DA TABELA]
-        Colunas disponíveis:
-        - id_campanha: Identificador único (STRING)
-        - data_execucao: Data de execução (DATE)
-        - segmento: Segmento de clientes (STRING)
-        - taxa_resposta: Taxa de resposta (%)
-        - canal: Canal de comunicação (EMAIL/SMS/PUSH)
-        - status: Status da campanha
-        - safra: Período de referência (YYYYMM)
-        """
-
     def validate_query(self, query: str) -> bool:
-        forbidden = ['DROP', 'DELETE', 'UPDATE', 'INSERT', 'ALTER']
+        forbidden = self.metadata['table_config']['security']['forbidden_operations']
         return not any(cmd in query.upper() for cmd in forbidden)
 
-
+# Main Agent
 class MrAgent:
-    def __init__(self):
-        self.athena_tool = AthenaTool()
-
-        # Create a wrapper function for the AthenaTool's run_query method
-        self.athena_tool_func = self.create_tool_function(self.athena_tool.run_query)
-
-        # Configuração inicial dos prompts
+    def __init__(self, metadata_file_path: str):
+        self.table_metadata = load_table_metadata(metadata_file_path)
+        self.athena_tool = AthenaTool(self.table_metadata)
         self._setup_prompts()
         self._setup_models()
         self._setup_tools()
         self.build_workflow()
 
-    def create_tool_function(self, original_func):
-        """
-        This wraps the AthenaTool's `run_query` to match the expected signature.
-        """
-        def tool_function(inputs: dict) -> dict:
-            query = inputs.get("query")
-            if query:
-                result = original_func(query)
-                return {"output": result}  # Return the result in the expected format
-            return {"output": pd.DataFrame()}  # Fallback empty dataframe if no query is found
-        
-        return tool_function
-
+    # Setup prompts based on metadata
     def _setup_prompts(self):
         self.date_prompt = ChatPromptTemplate.from_messages([
             ("system", """Como especialista em datas, extraia intervalos relevantes seguindo:
@@ -105,16 +85,15 @@ class MrAgent:
 
         self.mr_camp_prompt_str = ChatPromptTemplate.from_messages([
             ("system", f"""Você é um gerador de queries SQL para Athena. Regras:
-            1. Use sempre a tabela 'tbl_coeres_painel_anomes_v1_gold'
+            1. Use sempre a tabela 'gold'
             2. Colunas textuais em MAIÚSCULAS com UPPER()
             3. Filtre datas usando: {self.athena_tool.metadata}
             4. Formato de data: DATE 'YYYY-MM-DD'
             5. Limite resultados com LIMIT 1000
             6. Inclua safra quando relevante
-            
             Exemplos:
-            - "Quantos clientes no RJ?" → SELECT COUNT(*) FROM tabela WHERE UPPER(estado) = 'RJ'
-            - "Média de taxas por segmento" → SELECT segmento, AVG(taxa_resposta) FROM tabela GROUP BY segmento""")
+            - "Quantos clientes no RJ?" → SELECT COUNT(*) FROM gold WHERE UPPER(estado) = 'RJ'
+            - "Média de taxas por segmento" → SELECT segmento, AVG(taxa_resposta) FROM gold GROUP BY segmento""")
         ])
 
         self.resposta_prompt_desc = ChatPromptTemplate.from_messages([
@@ -125,15 +104,17 @@ class MrAgent:
              - Destaque métricas principais""")
         ])
 
+    # Setup models with OpenAI integration
     def _setup_models(self):
         self.model_mr_camp = self.mr_camp_prompt_str | ChatOpenAI(model="gpt-4", temperature=0)
         self.resposta_model = self.resposta_prompt_desc | ChatOpenAI(model="gpt-4", temperature=0)
 
+    # Setup tools (wrapped Athena query function)
     def _setup_tools(self):
-        # Use the wrapped AthenaTool function
-        self.tools = [convert_to_openai_tool(self.athena_tool_func)]
-        self.tool_node = ToolNode(self.tools)
+        self.athena_tool_func = convert_to_openai_tool(self.athena_tool.run_query)
+        self.tool_executor = ToolNode(self.athena_tool_func)
 
+    # Build the workflow with LangGraph
     def build_workflow(self):
         workflow = StateGraph(AgentState)
         
@@ -151,6 +132,7 @@ class MrAgent:
 
         self.app = workflow.compile()
 
+    # Extract date filter from user input
     def extract_dates(self, state: AgentState):
         question = state['question']
         last_ref = datetime.now().strftime('%Y-%m-%d')
@@ -160,6 +142,7 @@ class MrAgent:
         
         return {"date_filter": date_filter}
 
+    # Generate Athena query using the model and metadata
     def generate_athena_query(self, state: AgentState):
         question = state['question']
         date_filter = state.get('date_filter', '')
@@ -167,7 +150,8 @@ class MrAgent:
         full_prompt = f"""
         Pergunta: {question}
         Filtro de datas: {date_filter}
-        Metadados: {self.athena_tool.metadata}
+        Partições: {self.table_metadata['table_config']['partitions']}
+        Metadados: {self.table_metadata['table_config']}
         
         Gere uma query SQL válida para o Athena seguindo:
         - Use apenas colunas existentes
@@ -178,17 +162,18 @@ class MrAgent:
         response = self.model_mr_camp.invoke(full_prompt)
         return {"query": response.content}
 
+    # Execute the Athena query
     def execute_athena_query(self, state: AgentState):
         query = state['query']
         
         try:
             df = self.athena_tool.run_query(query)
-            return {"inter": df, "messages": [f"Query executada com sucesso. {len(df)} linhas retornadas."]}
-
+            return {"inter": df, "messages": [f"Query executada com sucesso. {len(df)} linhas retornadas."]}  # Return success
         except Exception as e:
             error_msg = f"Erro na query: {str(e)}"
             return {"messages": [error_msg], "inter": pd.DataFrame()}
 
+    # Format the response to the user
     def format_response(self, state: AgentState):
         df = state.get('inter', pd.DataFrame())
         question = state['question']
@@ -206,6 +191,7 @@ class MrAgent:
         
         return {"messages": [AIMessage(content=response)]}
 
+    # Main run method to execute the agent workflow
     def run(self, question: str):
         inputs = {
             "question": question,
@@ -222,8 +208,8 @@ class MrAgent:
         
         return final_response
 
-# Exemplo de uso
+# Example usage
 if __name__ == "__main__":
-    agent = MrAgent()
+    agent = MrAgent(metadata_file_path="path_to_table_metadata.yaml")
     resposta = agent.run("Qual a taxa média de resposta por segmento no último mês?")
     print(resposta)
