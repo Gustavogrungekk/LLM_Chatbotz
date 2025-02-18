@@ -1,5 +1,3 @@
-O que este código faz? 
-
 import os
 import yaml
 import re
@@ -134,8 +132,8 @@ class MrAgent:
                 "query_generator",
                 question=state['question'],
                 table_name=config['name'],
-                partitions=", ".join([p['name'] for p in config['partitions']]),
-                query_examples="\n".join([ex['sql'] for ex in config['query_examples']]),
+                partitions=", ".join([p['name'] for p in config['partitions']]),  # Aqui é onde as partições são passadas
+                query_examples="\n".join([ex['sql'] for ex in config['query_examples']]),  # Exemplos de queries para referência
                 max_rows=config['security']['maximum_rows']
             )
             raw_query = self.llm.invoke(prompt).content
@@ -143,6 +141,7 @@ class MrAgent:
             return {**state, "raw_query": raw_query}
         except Exception as e:
             return {**state, "error": f"Erro na geração da query: {str(e)}"}
+
 
     def check_query_generated(self, state: AgentState) -> str:
         return "valid" if state.get("raw_query") else "invalid"
