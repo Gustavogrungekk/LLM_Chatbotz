@@ -1,3 +1,5 @@
+O que este código faz? 
+
 import os
 import yaml
 import re
@@ -41,7 +43,7 @@ class PromptManager:
 class QueryValidator:
     def __init__(self, config: dict):
         self.config = config
-
+    
     def validate(self, query: str) -> dict:
         # Verificar operações proibidas
         forbidden_ops = self.config['security']['forbidden_operations']
@@ -51,9 +53,8 @@ class QueryValidator:
         # Verificar partições obrigatórias
         required_partitions = ['year', 'month', 'canal']
         for partition in required_partitions:
-            pattern = fr"{partition}\s*=\s*(?:'[^']+'|\"[^\"]+\"|\d+)"
-            if not re.search(pattern, query, re.IGNORECASE):
-                return {'valid': False, 'error': f"Filtro obrigatório '{partition}' ausente ou com formato inválido"}
+            if not re.search(fr"{partition}\s*=\s*'[^']+'", query, re.IGNORECASE):
+                return {'valid': False, 'error': f"Filtro {partition} ausente ou formato incorreto"}
         
         return {'valid': True}
 
@@ -196,9 +197,3 @@ class MrAgent:
         }
         result = self.workflow.invoke(initial_state)
         return result.get("response") or f"Erro: {result.get('error', 'Erro desconhecido')}"
-
-# Exemplo de uso
-if __name__ == "__main__":
-    agent = MrAgent()
-    resposta = agent.run("Qual a taxa de conversão em janeiro de 2024?")
-    print("\nResposta final:\n", resposta)
