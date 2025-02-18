@@ -70,7 +70,7 @@ class MrAgent:
     def __init__(self):
         self.athena_tool = AthenaTool()
 
-        # Modify run_query function to match the expected signature
+        # Create a wrapper function for the AthenaTool's run_query method
         self.athena_tool_func = self.create_tool_function(self.athena_tool.run_query)
 
         # Configuração inicial dos prompts
