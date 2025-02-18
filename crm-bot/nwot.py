@@ -12,6 +12,7 @@ from langchain_core.utils.function_calling import convert_to_openai_tool
 import awswrangler as wr
 from dateutil.relativedelta import relativedelta
 
+
 class AgentState(TypedDict):
     messages: Annotated[Sequence[BaseMessage], operator.add]
     actions: Annotated[Sequence[list], operator.add]
@@ -25,6 +26,7 @@ class AgentState(TypedDict):
     table_desc: str
     additional_filters: str
     query: str  # Novo campo para armazenar a query Athena
+
 
 class AthenaTool:
     def __init__(self):
@@ -66,6 +68,7 @@ class AthenaTool:
     def validate_query(self, query: str) -> bool:
         forbidden = ['DROP', 'DELETE', 'UPDATE', 'INSERT', 'ALTER']
         return not any(cmd in query.upper() for cmd in forbidden)
+
 
 class MrAgent:
     def __init__(self):
@@ -167,7 +170,7 @@ class MrAgent:
         
         try:
             df = self.athena_tool.run_query(query)
-            return {"inter": df, "messages": [f"Query executada com sucesso. {len(df)} linhas retornadas."]}
+            return {"inter": df, "messages": [f"Query executada com sucesso. {len(df)} linhas retornadas."] }
         except Exception as e:
             error_msg = f"Erro na query: {str(e)}"
             return {"messages": [error_msg], "inter": pd.DataFrame()}
@@ -204,6 +207,7 @@ class MrAgent:
                     final_response = value['messages'][0].content
         
         return final_response
+
 
 # Exemplo de uso
 if __name__ == "__main__":
