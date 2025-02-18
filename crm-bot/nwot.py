@@ -230,16 +230,38 @@ Para resolver esse problema, você pode fazer o seguinte:
            base_query += f"\nLIMIT {self.metadata['table_config']['security']['maximum_rows']}"
 
            return base_query
-   ```
 
-### 4. **Teste o Código**
-   - Execute o código e verifique se ele funciona conforme o esperado.
-   - Se você ainda encontrar problemas, verifique a documentação da biblioteca `langgraph` para garantir que está usando a versão correta e que todas as dependências estão instaladas corretamente.
 
-### 5. **Atualize as Dependências**
-   Se o problema persistir, pode ser necessário atualizar as dependências do projeto. Execute:
-   ```bash
-   pip install --upgrade langgraph
-   ```
 
-   Isso garantirá que você esteja usando a versão mais recente da biblioteca.
+
+AXASASASASAS
+def init_prompts(self):
+    # Inicializando os prompts
+    self.date_prompt = ChatPromptTemplate.from_messages([
+        ("system", """Como analista de dados brasileiro especialista em AWS Athena, extraia informações de data para partições. Sempre retorne datas no formato 'YYYY-MM-DD'. Use filtros de partição year/month/ e canal se necessário."""),
+        MessagesPlaceholder(variable_name="memory"),
+        ("user", '{question}')
+    ])
+    
+    self.mr_camp_prompt_str = f"""
+    Como engenheiro de dados especializado em AWS Athena, gere queries SQL seguindo estas regras:
+    
+    {self.athena_tool.get_query_guidelines()}
+    
+    Colunas disponíveis:
+    {self.athena_tool.get_column_context()}
+    
+    Diretrizes:
+    - Use sempre filtros de partição year/month e canal se especificado pelo usuário
+    - Formate valores de data como strings
+    - Use COUNT (DISTINCT CASE WHEN) para métricas binárias
+    - Limite resultados a {self.athena_tool.metadata['table_config']['security']['maximum_rows']} linhas
+    
+    Exemplos válidos:
+    {chr(10).join((ex['sql'] for ex in self.athena_tool.metadata['table_config']['query_examples']))}
+    """
+    
+    self.mr_camp_output = ChatPromptTemplate.from_messages([
+        ("system", self.mr_camp_prompt_str),
+        MessagesPlaceholder(variable_name="messages")  # Corrigido: sem n_messages
+    ])
