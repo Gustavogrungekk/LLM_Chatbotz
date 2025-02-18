@@ -1,17 +1,14 @@
 from typing import TypedDict, Sequence, Annotated
 from datetime import datetime
 import pandas as pd
-import json
 from langchain_core.messages import HumanMessage, AIMessage, BaseMessage, ToolMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_openai import ChatOpenAI
 from langgraph.graph import StateGraph
-from langchain_core.tools import ToolInvocation
-from langgraph.prebuilt import ToolExecutor
+from langgraph.prebuilt import ToolNode
 from langchain_core.utils.function_calling import convert_to_openai_tool
 import awswrangler as wr
 from dateutil.relativedelta import relativedelta
-
 
 class AgentState(TypedDict):
     messages: Annotated[Sequence[BaseMessage], operator.add]
@@ -26,7 +23,6 @@ class AgentState(TypedDict):
     table_desc: str
     additional_filters: str
     query: str  # Novo campo para armazenar a query Athena
-
 
 class AthenaTool:
     def __init__(self):
@@ -73,12 +69,28 @@ class AthenaTool:
 class MrAgent:
     def __init__(self):
         self.athena_tool = AthenaTool()
-        
+
+        # Modify run_query function to match the expected signature
+        self.athena_tool_func = self.create_tool_function(self.athena_tool.run_query)
+
         # Configuração inicial dos prompts
         self._setup_prompts()
         self._setup_models()
         self._setup_tools()
         self.build_workflow()
+
+    def create_tool_function(self, original_func):
+        """
+        This wraps the AthenaTool's `run_query` to match the expected signature.
+        """
+        def tool_function(inputs: dict) -> dict:
+            query = inputs.get("query")
+            if query:
+                result = original_func(query)
+                return {"output": result}  # Return the result in the expected format
+            return {"output": pd.DataFrame()}  # Fallback empty dataframe if no query is found
+        
+        return tool_function
 
     def _setup_prompts(self):
         self.date_prompt = ChatPromptTemplate.from_messages([
@@ -118,8 +130,9 @@ class MrAgent:
         self.resposta_model = self.resposta_prompt_desc | ChatOpenAI(model="gpt-4", temperature=0)
 
     def _setup_tools(self):
-        self.tools = [convert_to_openai_tool(self.athena_tool.run_query)]
-        self.tool_executor = ToolExecutor(self.tools)
+        # Use the wrapped AthenaTool function
+        self.tools = [convert_to_openai_tool(self.athena_tool_func)]
+        self.tool_node = ToolNode(self.tools)
 
     def build_workflow(self):
         workflow = StateGraph(AgentState)
@@ -170,7 +183,8 @@ class MrAgent:
         
         try:
             df = self.athena_tool.run_query(query)
-            return {"inter": df, "messages": [f"Query executada com sucesso. {len(df)} linhas retornadas."] }
+            return {"inter": df, "messages": [f"Query executada com sucesso. {len(df)} linhas retornadas."]}
+
         except Exception as e:
             error_msg = f"Erro na query: {str(e)}"
             return {"messages": [error_msg], "inter": pd.DataFrame()}
@@ -207,7 +221,6 @@ class MrAgent:
                     final_response = value['messages'][0].content
         
         return final_response
-
 
 # Exemplo de uso
 if __name__ == "__main__":
