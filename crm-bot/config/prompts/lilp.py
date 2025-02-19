@@ -1,22 +1,23 @@
 # Basics
 import json
 import pandas as pd
-import awswrangler as wr
-import yaml
-from datetime import datetime
-import operator
 from typing import TypedDict, Annotated, Sequence, List
+import operator
+from datetime import datetime
+from dateutil.relativedelta import relativedelta
 
 # Langchain
 from langchain_openai import ChatOpenAI
-from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, ToolMessage
+from langchain_core.messages import BaseMessage, FunctionMessage, HumanMessage, ToolMessage, AIMessage
+from langchain_core.utils.function_calling import convert_to_openai_function, convert_to_openai_tool
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
-from langchain_core.output_parsers import StrOutputParser
+from langchain_core.output_parsers.openai_tools import JsonOutputKeyToolsParser
 from langchain_core.runnables import RunnableParallel
+from langchain.agents import Tool
 
 # Langgraph
 from langgraph.graph import StateGraph
-from langgraph.prebuilt import ToolNode, ToolInvocation
+from langgraph.prebuilt import ToolExecutor, ToolInvocation
 
 # Rag tools
 from rag_tools.pandas_tools import PandasTool
@@ -27,454 +28,344 @@ from rag_tools.more_info_tool import ask_more_info
 # Self-defined functions
 from util_functions import get_last_chains
 
-# Define o AgentState para o fluxo
+# Define o tipo do estado
 class AgentState(TypedDict):
     messages: Annotated[Sequence[BaseMessage], operator.add]
     actions: Annotated[Sequence[List], operator.add]
     inter: pd.DataFrame
     memory: str
-    date_filter: List
+    date_filter: str
     attempts_count: int
     agent: str
     metadados: str
     table_desc: str
     additional_filters: str
+    sql_query: str
+    df: pd.DataFrame
 
-# ================================
-# ATHENA TOOL - UTILIZANDO OS METADADOS DO YAML
-# ================================
-class AthenaTool():
-    def __init__(self, metadata_path='table_metadata.yaml'):
-        with open(metadata_path, 'r') as f:
-            self.metadata = yaml.safe_load(f)
-            
-    def get_table_description(self):
-        return f"""
-Tabela: {self.metadata['table_config']['name']}
-Partições obrigatórias: {[p['name'] for p in self.metadata['table_config']['partitions']]}
-Colunas disponíveis: {[c['name'] for c in self.metadata['columns']]}
-"""
-        
-    def get_query_guidelines(self):
-        return "\n".join(self.metadata['query_guidelines'])
-    
-    def get_latest_date(self):
-        """
-        Obtém a data mais recente a partir do Athena, 
-        consultando os valores máximos dos campos 'year' e 'month'.
-        Em caso de erro (ex.: falha de SSL), retorna um valor padrão.
-        """
-        try:
-            query_year = f"SELECT MAX(CAST(year AS INT)) as max_year FROM {self.metadata['table_config']['name']}"
-            df_year = wr.athena.read_sql_query(
-                sql=query_year, 
-                database=self.metadata['table_config']['database'],
-                workgroup=self.metadata['table_config']['workgroup'],
-                ctas_approach=False
-            )
-            max_year = df_year.iloc[0]['max_year']
-            query_month = f"SELECT MAX(CAST(month AS INT)) as max_month FROM {self.metadata['table_config']['name']} WHERE year = '{max_year}'"
-            df_month = wr.athena.read_sql_query(
-                sql=query_month, 
-                database=self.metadata['table_config']['database'],
-                workgroup=self.metadata['table_config']['workgroup'],
-                ctas_approach=False
-            )
-            max_month = df_month.iloc[0]['max_month']
-            return {'year': str(max_year), 'month': str(max_month).zfill(2)}
-        except Exception as e:
-            print("Erro ao obter a data mais recente:", e)
-            return {'year': '2025', 'month': '01'}
-
-# ================================
-# AGENTE PRINCIPAL: MrAgent
-# ================================
 class MrAgent():
     def __init__(self):
-        # Inicializa o agente e as ferramentas
-        self.athena_tool = AthenaTool()
-        self.athenas_time = []  # Armazena os tempos de execução das queries
-        self.init_model()
-        self.build_workflow()
-    
-    # ========== PROMPT PARA GERAÇÃO DE QUERIES NO ATHENA ==========
-    sql_gen_prompt_str = """
-Como especialista em AWS Athena e análise de dados bancários, sua função é criar queries SQL eficientes usando estas diretrizes:
-
-**Metadados da Tabela:**
-{table_metadata}
-
-**Diretrizes Obrigatórias:**
-{query_guidelines}
-
-**Instruções:**
-1. Sempre incluir filtros de partição (year, month, canal) como strings.
-2. NUNCA utilize SELECT *; especifique explicitamente as colunas necessárias: cnpj, produto, abastecido, potencial, visto, clique, atuado, disponivel, canal, metrica_engajamento.
-3. Priorize consultas performáticas com LIMIT e filtros adequados.
-4. Formate datas como strings: 'YYYY' para year, 'MM' para month.
-
-Pergunta do usuário: {question}
-Filtros aplicados: {filters}
-
-Retorne a query SQL pronta para execução, com comentários e explicações para homologação.
-    """
-    
-    # ========== PROMPT ORIGINAL PARA A MÁQUINA DE RESULTADOS ==========
-    mr_camp_prompt_str = """
-Como engenheiro de dados brasileiro, especializado em análise de dados bancários de engajamento e CRM (Customer Relationship Management) usando Python, seu papel é responder exclusivamente a perguntas sobre a Máquina de Resultados,
-um conjunto de dados utilizado para acompanhar o desempenho de campanhas e ações de CRM.
-Você tem acesso ao dataframe 'df' com informações sobre:
-{table_desc}
-Baseando-se na descrição das colunas e nos metadados:
-{metadados}
-Responda à pergunta do usuário de forma clara, concisa e detalhada.
-    """
-    
-    def init_model(self):
-        # Configurar modelo para geração de queries SQL para Athena
-        self.sql_gen_prompt = ChatPromptTemplate.from_template(self.sql_gen_prompt_str).partial(
-            table_metadata=self.athena_tool.get_table_description(),
-            query_guidelines=self.athena_tool.get_query_guidelines()
-        )
-        self.sql_gen_model = (self.sql_gen_prompt 
-                              | ChatOpenAI(model="gpt-4-0125-preview", temperature=0)
-                              | StrOutputParser())
-        
-        # Modelo para a Máquina de Resultados (prompt original)
-        self.mr_camp_prompt = ChatPromptTemplate.from_template(self.mr_camp_prompt_str).partial(
-            table_desc=self.athena_tool.get_table_description(),
-            metadados="Consulte os metadados do YAML para detalhes completos sobre cada coluna."
-        )
-        self.model_mr_camp = self.mr_camp_prompt | ChatOpenAI(model="gpt-4-0125-preview", temperature=0, seed=1)
-        
-        # Ferramentas originais
-        pdt = PandasTool()
-        self.pdt = pdt
-        tool_evaluate_pandas_chain = pdt.evaluate_pandas_chain
-        
-        dt = DocumentTool()
-        self.dt = dt
-        
-        tools = [tool_evaluate_pandas_chain]
-        # Utilizamos ToolNode, conforme recomendação
-        self.tool_executor = ToolNode(tools)
-        self.tools = tools
-        
-        # ========== CONFIGURAÇÃO DO EXTRATOR DE DATAS ==========
-        # O prompt exige que o retorno seja um JSON com "year" e "month"
+        # Inicializações dos prompts (todos definidos dentro do __init__ para uso do self)
         self.date_prompt = ChatPromptTemplate.from_messages([
             ("system", """
-Você é um especialista em extração de datas para consultas no AWS Athena.
-Sua tarefa é analisar a pergunta do usuário e extrair as informações de data no formato JSON com as chaves "year" e "month".
-- Se a pergunta contiver referências temporais explícitas (ex.: "janeiro de 2025", "últimos 2 meses"), extraia essas informações.
-- Se NÃO houver referência temporal, retorne a última data disponível conforme: {latest_date}.
-Por exemplo: {"year": "2025", "month": "01"}
-            """)
+            Como analista de dados brasileiro especialista em python, sua função é extrair as informações relativas a data.
+            
+            Você está na data: {last_ref}
+            
+            Sempre forneça a data como um código pd.date_range() com o argumento freq 'ME' e no formato 'YYYY-mm-dd'.
+            Caso exista apenas a informação mês, retorne start-'0000-mm-01' e end-'0000-mm-dd'.
+            Caso exista apenas a informação ano, retorne todo o intervalo do ano.
+            Caso não exista informação de data, retorne pd.date_range(start='0000-00-00', end='0000-00-00', freq='ME').
+            Caso a pergunta contenha a expressão "mês a mês" ou "referência", retorne pd.date_range(start='3333-00-00', end='3333-00-00', freq='ME').
+            Caso a pergunta contenha "último(s) mês(es)", retorne os últimos meses de acordo com a pergunta.
+            
+            Nunca forneça intervalos de data maiores que fevereiro de 2025.
+            """),
+            MessagesPlaceholder(variable_name="memory"),
+            ("user", "(question)")
         ])
-        self.date_prompt = self.date_prompt.partial(latest_date=self.athena_tool.get_latest_date())
-        # Passamos os argumentos como keyword arguments
-        self.date_extractor = (self.date_prompt | ChatOpenAI(model="gpt-4-0125-preview", temperature=0)
-                               | StrOutputParser())
+
+        self.enrich_mr_camp_str = """
+        Como engenheiro de prompt, sua função é reescrever e detalhar a pergunta de forma que um modelo de LLM consiga responder.
         
-        # ========== CONFIGURAÇÃO DOS PROMPTS DE SUGESTÃO E RESPOSTA ==========
+        Considere que você tem acesso a seguinte tabela para enriquecer a resposta:
+        {table_description_mr}
+        {column_context_mr}
+        
+        Pergunta do usuário:
+        {question}
+        
+        Reescreva de forma sucinta a pergunta indicando quais filtros são necessários realizar para respondê-la.
+        Atente-se à pergunta! Não infira nada além do que está nela.
+        
+        Caso a pergunta contenha algum conceito que não está nos metadados, redija a pergunta de forma a dizer que não consegue responder.
+        
+        Considere que a pergunta possui o seguinte filtro na coluna 'safra': {date_filter}
+        """
+        self.enrich_mr_camp_prompt = ChatPromptTemplate.from_messages([
+            ("system", self.enrich_mr_camp_str),
+            MessagesPlaceholder(variable_name="memory"),
+            MessagesPlaceholder(variable_name="messages")
+        ])
+
+        self.sql_gen_prompt_str = """
+        Como especialista em AWS Athena e análise de dados bancários, sua função é criar queries SQL eficientes seguindo estas regras:
+        **Tabela e Partições:**
+        - Nome da tabela: `tbl_coeres_painel_anomes_v1_gold`
+        - Partições obrigatórias (sempre filtrar como strings):
+          - `year` (formato 'YYYY', ex: '2025')
+          - `month` (formato 'MM', ex: '01')
+          - `canal` (valores como 'VAI', 'APP', etc.)
+
+        **Colunas Disponíveis:**
+        1. `cnpj` (bigint): Identificador único do cliente
+        2. `produto` (string): Tipo de produto financeiro (ex: cartão, empréstimo)
+        3. `abastecido` (int): 0 ou 1 - cliente recebeu campanha
+        4. `potencial` (int): 0 ou 1 - cliente é potencial
+        5. `visto` (int): 0 ou 1 - cliente visualizou a campanha
+        6. `clique` (int): 0 ou 1 - cliente clicou na campanha
+        7. `atuado` (int): 0 ou 1 - cliente foi atuado
+        8. `disponivel` (int): 0 ou 1 - campanha disponível
+        9. `metrica_engajamento` (double): Índice de engajamento
+
+        **Regras Obrigatórias:**
+        1. SEMPRE inclua filtros para `year`, `month` e `canal` como strings (ex: `year = '2025'`).
+        2. Use `COUNT(DISTINCT CASE WHEN coluna = 1 THEN cnpj END)` para métricas binárias.
+        3. Selecione explicitamente as colunas necessárias - NUNCA use `SELECT *`.
+        4. Valide datas: `year` com 4 dígitos, `month` com 2 dígitos.
+        5. Priorize performance com `LIMIT` e filtros adequados.
+
+        **Exemplo de Query Válida:**
+        ```sql
+        SELECT 
+          canal,
+          COUNT(DISTINCT CASE WHEN potencial = 1 THEN cnpj END) AS clientes_potenciais,
+          COUNT(DISTINCT CASE WHEN visto = 1 THEN cnpj END) AS visualizacoes
+        FROM tbl_coeres_painel_anomes_v1_gold
+        WHERE year = '2025' 
+          AND month = '01'
+          AND canal = 'VAI'
+        GROUP BY canal
+        LIMIT 1000
+        ```
+        """
+        self.sql_gen_prompt = ChatPromptTemplate.from_messages([
+            ("system", self.sql_gen_prompt_str),
+            ("user", "Pergunta: {question}\nMetadados: {metadados}")
+        ])
+
+        self.mr_camp_prompt_str = """
+        Como engenheiro de dados brasileiro, especializado em análise de dados bancários e engajamento do cliente, seu papel é responder exclusivamente a perguntas sobre a Máquina de Resultados, um conjunto de dados utilizado para acompanhar o desempenho de campanhas e ações de CRM.
+        
+        Você tem acesso ao dataframe 'df' obtido através da execução da query SQL no Athena. Esta query foi gerada dinamicamente com base nos metadados e na pergunta do usuário.
+        
+        Baseando-se nas descrições das colunas disponíveis:
+        {column_context_mr}
+        
+        Identifique quais colunas estão diretamente relacionadas com a pergunta feita no chat. Após essa identificação, desenvolva e execute uma sequência de comandos utilizando a ferramenta 'evaluate_pandas_chain', estruturando-os da seguinte maneira:
+        
+        <BEGIN> -> action1 -> action2 -> action3 -> <END>.
+        
+        Atente-se:
+        - Use str.contains() para buscar valores em colunas de string.
+        - Os valores em colunas string estão em CAPSLOCK.
+        - Se a pergunta contiver conceitos não presentes nos metadados, não infira uma resposta.
+        - Retorne uma tabela em markdown quando solicitado.
+        """
+        self.mr_camp_prompt = ChatPromptTemplate.from_messages([
+            ("system", self.mr_camp_prompt_str),
+            MessagesPlaceholder(variable_name="messages", n_message=1)
+        ])
+
         self.suges_pergunta_prompt_desc = """
-Você é um assistente de IA especializado em melhorar a clareza das perguntas dos usuários.
-Analise a pergunta e identifique se há informações faltantes ou ambíguas.
-Considere que o dataframe possui as seguintes informações:
-{table_desc}
-Metadados: {metadados}
-Se a pergunta estiver clara, confirme o entendimento; caso contrário, solicite mais detalhes.
+        Você é um assistente de IA especializado em melhorar a clareza das perguntas dos usuários.
+        
+        Analise a pergunta original para identificar se há informações faltantes ou ambiguidades. Caso necessário, questione o usuário para obter os detalhes que permitam uma resposta completa.
+        
+        Considere que há um dataframe com as seguintes colunas: {metadados} e descrição: {table_desc}.
+        
+        Se a pergunta estiver clara, confirme o entendimento; se não, peça esclarecimentos.
         """
         self.suges_pergunta_prompt = ChatPromptTemplate.from_messages([
             ("system", self.suges_pergunta_prompt_desc),
             MessagesPlaceholder(variable_name="memory"),
             ("user", "(question)")
         ])
-        
+
         self.resposta_prompt_desc = """
-Você é um analista de dados especializado em dados bancários e engajamento do cliente.
-Verifique se a resposta técnica contém todas as informações necessárias para responder à pergunta.
-Utilize exclusivamente os dados do dataframe:
-{table_desc}
-Metadados: {metadados}
-Se as informações forem suficientes, formate a resposta em markdown, incluindo o período de datas;
-caso contrário, utilize a ferramenta 'ask_more_info' para solicitar mais dados.
+        Você é um analista de dados especializado em dados bancários e engajamento.
+        
+        Verifique se as respostas técnicas fornecidas contêm todas as informações necessárias para responder à pergunta do usuário.
+        
+        Utilize as informações do dataframe (descrição: {table_desc} e metadados: {metadados}) para validar a resposta.
+        
+        Se as informações estiverem completas, formate a resposta; se não, indique que faltam dados e solicite mais informações.
         """
         self.resposta_prompt = ChatPromptTemplate.from_messages([
             ("system", self.resposta_prompt_desc),
             MessagesPlaceholder(variable_name="memory"),
             MessagesPlaceholder(variable_name="messages")
         ])
-        self.model_enrich_mr_camp = self.suges_pergunta_prompt | ChatOpenAI(model="gpt-4-0125-preview", temperature=0, seed=1)
-        self.resposta_model = self.resposta_prompt | ChatOpenAI(model="gpt-4-0125-preview", temperature=0, seed=1) \
-            .bind_tools([ask_more_info], parallel_tool_calls=False)
-    
-    # ========== EXECUÇÃO DA QUERY GERADA (nó mr_camp_action) ==========
+
+        # Inicializa os modelos e ferramentas
+        self.init_model()
+
+    # --- Nós adaptados para retornar PromptValues ---
+    def call_date_extractor(self, state):
+        date_list = self.date_extractor.invoke(state)
+        # Se date_list for uma lista de mensagens, converte para string; caso contrário, retorna como string
+        if isinstance(date_list, list):
+            return " ".join([msg.content for msg in date_list])
+        return str(date_list)
+
+    def call_model_mr_camp_enrich(self, state):
+        response = self.model_enrich_mr_camp.invoke(state)
+        # Retorna uma lista de mensagens
+        return [response]
+
+    def call_sql_generator(self, state):
+        response = self.sql_gen_model.invoke(state)
+        sql_query = response.content.strip()
+        # Retorna a query como string
+        return sql_query
+
+    def call_run_athena_query(self, state):
+        # Obtém a query da etapa anterior (que deve ser uma string)
+        query = state.get("sql_query", "")
+        if query:
+            df = self.run_query(query)
+            # Armazena o dataframe no estado para uso posterior (side effect)
+            state["df"] = df
+        # Retorna uma string vazia para não afetar o fluxo de prompt
+        return ""
+
+    def call_model_mr_camp(self, state):
+        response = self.model_mr_camp.invoke(state)
+        return [response]
+
+    def call_sugest_pergunta(self, state):
+        sugestao = self.sugest_model.invoke(state)
+        return [sugestao]
+
+    def call_resposta(self, state):
+        resposta = self.resposta_model.invoke(state)
+        if not resposta.tool_calls:
+            return [resposta]
+        else:
+            return [AIMessage(content="Mais informações:")]
+
+    def end_node(self, state):
+        return [AIMessage(content="Fim do workflow.")]
+
+    # Para simplificar, o nó que executa ferramentas agora retorna um resumo em string.
     def call_tool(self, state):
-        # Passamos os argumentos como keywords
-        query = self.sql_gen_model.invoke(question=state['question'], filters=state['date_filter'])
-        print(f"\n=== QUERY GERADA PARA HOMOLOGAÇÃO ===\n{query}\n")
-        df = self.run_query(query)
-        response = df.head().to_markdown() if not df.empty else "Consulta não retornou resultados."
-        return {"messages": [ToolMessage(content=response, name="SQL_Generation")]}
-    
-    def run_query(self, query: str):
-        inicio = datetime.now()
-        try:
-            df = wr.athena.read_sql_query(
-                sql=query,
-                database=self.athena_tool.metadata['table_config']['database'],
-                workgroup=self.athena_tool.metadata['table_config']['workgroup'],
-                ctas_approach=False
-            )
-        except Exception as e:
-            print("Erro ao executar query no Athena:", e)
-            df = pd.DataFrame()
-        self.athenas_time.append(datetime.now() - inicio)
-        print(f"TEMPO EXEC ATHENA: {datetime.now() - inicio}")
-        return df
-    
-    # ========== EXTRAÇÃO DE DATAS ==========
-    def get_date_filter(self, question: str) -> dict:
-        result = self.date_extractor.invoke(question=question)
-        try:
-            # Tenta converter o resultado em JSON
-            date_dict = json.loads(result)
-            return date_dict
-        except Exception as e:
-            print("Falha ao parsear data filter:", result, e)
-            return self.athena_tool.get_latest_date()
-    
-    # ========== FLUXO PRINCIPAL ==========
-    def run(self, context, verbose: bool = True):
-        print("Streamlit session state:")
-        print(context)
-        print(type(context))
-        
-        query = context['messages'][-1]["content"]
-        memory = context['messages'][:-1]
-        date_filter = self.get_date_filter(query)
-        
-        inputs = {
-            "messages": [HumanMessage(content=query)],
-            "actions": ["<BEGIN>"],
-            "question": query,
-            "memory": memory,
-            "date_filter": date_filter,
-            "attempts_count": 0
-        }
-        
-        try:
-            current_action = []
-            inter_list = []
-            for output in self.app.stream(inputs, {"recursion_limit": 100}, stream_mode='updates'):
-                print(output)
-                for key, value in output.items():
-                    if key.endswith("agent") and verbose:
-                        print(f"Agent {key} working...")
-                    elif key.endswith("_action") and verbose:
-                        if value["messages"][0].name == "view_pandas_dataframes":
-                            print("Current action: viewing dataframes")
-                        else:
-                            if "actions" in value:
-                                print(f"Current action: {value['actions']}")
-                                print(f"Current output: {value.get('inter','')}")
-                    elif key == "date_extraction" and verbose:
-                        print("Date filter for the current question:")
-                        print(value["date_filter"])
-                    elif key == "sugest_pergunta" and verbose:
-                        print("Prompt engineering response:")
-                        print(value["messages"])
-                    elif key == "add_count" and verbose:
-                        print("Adding attempt count:")
-                        print(value["attempts_count"])
-                    elif key == "resposta" and verbose:
-                        print("Verificando resposta:")
-                        print(value["messages"])
-                    elif verbose:
-                        print("Finishing up...")
-                        print(f"Final output: {value.get('inter','')}")
-                        print(f"Final action chain: {' -> '.join(value.get('actions', []))} -> <END>")
-                    
-                    if "actions" in value:
-                        current_action.append("->".join(value["actions"]) if isinstance(value["actions"], list) else value["actions"])
-                    messages = value.get('messages', None)
-                    if 'inter' in value and value['inter'] is not None:
-                        inter_list.append(value['inter'])
-                    print("---")
-                final_action = current_action[-1] if current_action else ""
-                agent_response = messages[-1].content if messages else ""
-                final_table = inter_list[-1] if inter_list else []
-                final_message = agent_response.replace('<END>', '').replace('<BEGIN>', '')
-        except Exception as e:
-            print("Houve um erro no processo:")
-            print(e)
-            final_message = "Encontramos um problema processando sua pergunta. Tente novamente, com outra abordagem."
-            final_action = ''
-            final_table = ''
-        return final_message, final_action, final_table
-    
-    def should_ask(self, state):
-        print(f"QUANTIDADE DE TENTATIVAS: {state['attempts_count']}")
-        last_message = state['messages'][-1]
-        if (("An exception occured" in last_message.content) and (state['attempts_count'] >= 2)) or (state['attempts_count'] >= 4):
-            return "ask"
-        else:
-            print(f"Última mensagem: {last_message.content}")
-            return "not_ask"
-    
-    def add_count(self, state):
-        messages = state['messages']
-        last_message = messages[-1]
-        if not (hasattr(last_message, 'additional_kwargs') and last_message.additional_kwargs and last_message.additional_kwargs.get('tool_calls')):
-            return {"attempts_count": state['attempts_count']}
-        else:
-            tool_calls = last_message.additional_kwargs.get('tool_calls', [])
-            if tool_calls and tool_calls[0]['function']['name'] != 'view_pandas_dataframes':
-                qtd_passos = state['attempts_count'] + 1
-                return {"attempts_count": qtd_passos}
-        return {"attempts_count": state['attempts_count']}
-    
-    def need_info(self, state):
-        messages = state['messages']
-        last_message = messages[-1]
-        if isinstance(last_message, AIMessage) and last_message.content.startswith("Mais informações:"):
-            return "more_info"
-        return "ok"
-    
+        # Se houver chamadas de ferramenta no último message, executa e retorna um resumo.
+        last_message = state["messages"][-1]
+        if "tool_calls" in last_message.additional_kwargs:
+            for tc in last_message.additional_kwargs["tool_calls"]:
+                tool_input = tc["function"]["arguments"]
+                tool_input_dict = json.loads(tool_input)
+                # Se necessário, modifique o dicionário com dados do estado
+                action = ToolInvocation(
+                    tool=tc["function"]["name"],
+                    tool_input=tool_input_dict
+                )
+                response, attempted_action, inter = self.tool_executor.invoke(action)
+                summary = f"Tool '{action.tool}' executada com ação: {attempted_action}. Resultado: {response}"
+                return summary
+        return "Nenhuma ferramenta executada."
+
+    # --- Configuração dos modelos e workflow ---
+    def init_model(self):
+        pdt = PandasTool()
+        self.pdt = pdt
+        tool_evaluate_pandas_chain = pdt.evaluate_pandas_chain
+
+        dt = DocumentTool()
+        self.dt = dt
+
+        tools = [tool_evaluate_pandas_chain]
+        self.tool_executor = ToolExecutor(tools)
+        self.tools = [convert_to_openai_tool(t) for t in tools]
+
+        # Configuração dos prompts e modelos
+        self.enrich_mr_camp_prompt = self.enrich_mr_camp_prompt.partial(
+            table_description_mr=pdt.get_qstring_mr_camp()
+        ).partial(
+            column_context_mr=dt.get_col_context_mr_camp()
+        )
+        self.model_enrich_mr_camp = self.enrich_mr_camp_prompt | ChatOpenAI(model="gpt-4-0125-preview", temperature=0, seed=1)
+
+        self.sql_gen_prompt = self.sql_gen_prompt.partial(metadados=dt.get_col_context_mr_camp())
+        self.sql_gen_model = self.sql_gen_prompt | ChatOpenAI(model="gpt-4-0125-preview", temperature=0, seed=1)
+
+        self.mr_camp_prompt = self.mr_camp_prompt.partial(column_context_mr=dt.get_col_context_mr_camp())
+        self.model_mr_camp = self.mr_camp_prompt | ChatOpenAI(model="gpt-4-0125-preview", temperature=0, seed=1).bind_tools(
+            self.tools, parallel_tool_calls=False, tool_choice="evaluate_pandas_chain"
+        )
+
+        last_ref = (datetime.strptime(str(max(pdt.get_refs())), "%Y%m") + relativedelta(months=1)).strftime("%Y/%m/%d")
+        dates = pdt.get_refs()
+        self.date_prompt = self.date_prompt.partial(last_ref=last_ref).partial(datas_disponiveis=dates)
+        date_llm = ChatOpenAI(model="gpt-4-0125-preview", temperature=0, seed=1).bind_tools(
+            [DateToolDesc], tool_choice='DateToolDesc'
+        )
+        partial_model = self.date_prompt | date_llm | JsonOutputKeyToolsParser(key_name='DateToolDesc') | (lambda x: x[0]["pandas_str"])
+        self.date_extractor = RunnableParallel(pandas_str=partial_model, refs_list=lambda x: pdt.get_refs()) | ChatOpenAI(
+            model="gpt-4-0125-preview", temperature=0, seed=1
+        )
+
+        self.suges_pergunta_prompt = self.suges_pergunta_prompt.partial(
+            table_desc=pdt.get_qstring_mr_camp()
+        ).partial(
+            metadados=dt.get_col_context_mr_camp()
+        )
+        self.sugest_model = self.suges_pergunta_prompt | ChatOpenAI(model="gpt-4-0125-preview", temperature=0, seed=1)
+
+        self.resposta_prompt = self.resposta_prompt.partial(
+            table_desc=pdt.get_qstring_mr_camp()
+        ).partial(
+            metadados=dt.get_col_context_mr_camp()
+        )
+        self.resposta_model = self.resposta_prompt | ChatOpenAI(model="gpt-4-0125-preview", temperature=0, seed=1).bind_tools(
+            [ask_more_info], parallel_tool_calls=False
+        )
+
+        self.build_workflow()
+
     def build_workflow(self):
         workflow = StateGraph(AgentState)
         workflow.add_node("date_extraction", self.call_date_extractor)
         workflow.add_node("mr_camp_enrich_agent", self.call_model_mr_camp_enrich)
+        workflow.add_node("sql_generator", self.call_sql_generator)
+        workflow.add_node("run_athena_query", self.call_run_athena_query)
         workflow.add_node("mr_camp_agent", self.call_model_mr_camp)
+        workflow.add_node("add_count", self.add_count)  # Função condicional, não é chamada diretamente para prompt
         workflow.add_node("mr_camp_action", self.call_tool)
         workflow.add_node("sugest_pergunta", self.call_sugest_pergunta)
-        workflow.add_node("add_count", self.add_count)
         workflow.add_node("resposta", self.call_resposta)
-        # Nó END para finalização
-        workflow.add_node("END", lambda state: state)
-        
+        workflow.add_node("END", self.end_node)
+
         workflow.set_entry_point("date_extraction")
         workflow.add_edge("date_extraction", "mr_camp_enrich_agent")
-        workflow.add_edge("mr_camp_enrich_agent", "mr_camp_agent")
+        workflow.add_edge("mr_camp_enrich_agent", "sql_generator")
+        workflow.add_edge("sql_generator", "run_athena_query")
+        workflow.add_edge("run_athena_query", "mr_camp_agent")
         workflow.add_edge("mr_camp_agent", "add_count")
         workflow.add_edge("add_count", "mr_camp_action")
-        workflow.add_conditional_edges(
-            "mr_camp_action",
-            self.should_ask,
-            {"ask": "sugest_pergunta", "not_ask": "resposta"}
-        )
-        workflow.add_conditional_edges(
-            "resposta",
-            self.need_info,
-            {"more_info": "mr_camp_enrich_agent", "ok": "END"}
-        )
+        workflow.add_conditional_edges("mr_camp_action", self.should_ask, {"ask": "sugest_pergunta", "not_ask": "resposta"})
+        workflow.add_conditional_edges("resposta", self.need_info, {"more_info": "mr_camp_enrich_agent", "ok": "END"})
         workflow.add_edge("sugest_pergunta", "END")
-        self.app = workflow.build()
-    
-    def call_date_extractor(self, state):
-        date_list = self.date_extractor.invoke(question=state['question'])
-        return {"date_filter": date_list}
-    
-    def call_model_mr_camp_enrich(self, state):
-        response = self.model_enrich_mr_camp.invoke(**state)
-        return {"messages": [response]}
-    
-    def call_model_mr_camp(self, state):
-        response = self.model_mr_camp.invoke(**state)
-        return {"messages": [response]}
-    
-    def call_sugest_pergunta(self, state):
-        sugestao = self.sugest_model.invoke(**state)
-        return {"messages": [sugestao]}
-    
-    def call_resposta(self, state):
-        resposta = self.resposta_model.invoke(**state)
-        print("RESPOSTA AQUI -->", resposta)
-        if not hasattr(resposta, 'tool_calls') or not resposta.tool_calls:
-            return {"messages": [resposta]}
-        else:
-            resposta = "Mais informações:"
-            resposta = AIMessage(resposta)
-            return {"messages": [resposta]}
+        self.app = workflow.compile()
 
-# ================================
-# FUNÇÃO EXTERNA RENOMEADA PARA EVITAR CONFLITO
-# ================================
-def execute_tool_chain(self, state):
-    messages = state['messages']
-    last_message = messages[-1]
-    output_dict = {"messages": []}
-    for idx, tool_call in enumerate(last_message.additional_kwargs['tool_calls']):
-        tool_input = last_message.additional_kwargs['tool_calls'][idx]['function']['arguments']
-        tool_input_dict = json.loads(tool_input)
-        if last_message.additional_kwargs['tool_calls'][idx]['function']['name'] == 'evaluate_pandas_chain':
-            tool_input_dict['inter'] = state['inter']
-            tool_input_dict['date_filter'] = state['date_filter']
-            tool_input_dict['agent'] = state['agent']
-        action = ToolInvocation(
-            tool=last_message.additional_kwargs['tool_calls'][idx]['function']['name'],
-            tool_input=tool_input_dict
+    def run_query(self, query: str):
+        inicio = datetime.now()
+        import awswrangler as wr
+        df = wr.athena.read_sql_query(
+            sql=query,
+            database='database_db_compartilhado_consumer_crmcoecampanhaspj',
+            workgroup='analytics-workspace-v3',
+            ctas_approach=False
         )
-    response, attempted_action, inter = self.tool_executor.invoke(action)
-    if "An exception occurred:" in str(response):
-        error_info = f"""
-You have previously performed the actions:
-{state['actions']}
+        if not hasattr(self, 'athenas_time'):
+            self.athenas_time = []
+        self.athenas_time.append(datetime.now() - inicio)
+        print(f"TEMPO EXEC ATHENA: {datetime.now() - inicio}")
+        return df
 
-Current action:
-{attempted_action}
+    # As funções de condição (não precisam retornar PromptValues)
+    def should_ask(self, state):
+        last_message = state['messages'][-1]
+        if (("An exception occured" in last_message['content']) and (state['attempts_count'] >= 2)) or (state['attempts_count'] >= 4):
+            return "ask"
+        return "not_ask"
 
-Result.head(10):
-{response}
+    def add_count(self, state):
+        # Apenas atualiza a contagem; não é usado como prompt
+        return {"attempts_count": state['attempts_count'] + 1}
 
-You must correct your approach and continue until you can answer the question:
-{state['question']}
-
-Continue the chain with the following format: action_i -> action_i+1... -> <END>
-        """
-        print(error_info)
-        function_message = ToolMessage(
-            content=str(error_info),
-            name=action.tool,
-            tool_call_id=tool_call["id"]
-        )
-        output_dict["messages"].append(function_message)
-    else:
-        success_info = f"""
-You have previously performed the actions:
-{state['actions']}
-
-Current action:
-{attempted_action}
-
-Result.head(50):
-{response}
-
-You must continue until you can answer the question:
-{state['question']}
-
-Continue the chain with the following format: action_i -> action_i+1 ... -> <END>
-        """
-        print(success_info)
-        function_message = ToolMessage(
-            content=str(success_info),
-            name=action.tool,
-            tool_call_id=tool_call["id"]
-        )
-        output_dict["messages"].append(function_message)
-        output_dict["actions"] = [attempted_action]
-        output_dict["inter"] = inter
-        print("TOOL OUTPUT")
-        print(output_dict)
-        return output_dict
-
-# ================================
-# Exemplo de Uso
-# ================================
-if __name__ == "__main__":
-    agent = MrAgent()
-    pergunta = "Qual foi o potencial do canal vai em janeiro de 2025?"
-    resultado = agent.run({"messages": [{"content": pergunta}]})
-    print("Resultado Final:")
-    print(resultado)
+    def need_info(self, state):
+        last_message = state['messages'][-1]
+        if isinstance(last_message, AIMessage) and last_message.content.startswith("Mais informações:"):
+            return "more_info"
+        return "ok"
