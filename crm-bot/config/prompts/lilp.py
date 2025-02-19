@@ -358,23 +358,19 @@ class MrAgent():
 
 
 
-
-
-
-
-
 def run(self, context, verbose: bool = True):
-    print("DEBUG - Tipo de context:", type(context))
-    print("DEBUG - Conteúdo de context:", context)
+    print("Streamlit session state:")
+    print(context)
 
-    # Se context for uma lista, pegue o último item corretamente
-    if isinstance(context, list):
-        query = context[-1].content  # Agora acessamos corretamente!
-        memory = context[:-1]  # O restante da lista vira memória
-    else:
-        query = context['messages'][-1]["content"]
-        memory = context['messages'][:-1]
+    # Ensure that context['messages'] contains HumanMessage instances
+    if not context['messages']:
+        return "No messages provided."
 
+    # Access the last message's content correctly
+    query = context['messages'][-1].content  # Assuming messages are HumanMessage instances
+    memory = context['messages'][:-1]  # This should also be a list of HumanMessage instances
+
+    # Estado inicial
     state = {
         "messages": [HumanMessage(content=query)],
         "actions": ["<BEGIN>"],
@@ -384,12 +380,18 @@ def run(self, context, verbose: bool = True):
     }
 
     try:
+        # Simulate streaming the workflow
         for output in self.app.stream(state, {"recursion_limit": 100}, stream_mode='updates'):
             print("Output:", output)
+
+        # Get the final output
         final_output = self.app.run(state)
+
+        # Assuming final_output is a list of messages
         final_message = " ".join([msg.content for msg in final_output])
     except Exception as e:
-        print("Houve um erro no processo:", e)
-        final_message = "Encontramos um problema processando sua pergunta. Tente novamente."
+        print("Houve um erro no processo:")
+        print(e)
+        final_message = "Encontramos um problema processando sua pergunta. Tente novamente, com outra abordagem."
 
     return final_message
