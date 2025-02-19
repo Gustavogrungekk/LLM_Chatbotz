@@ -362,36 +362,45 @@ def run(self, context, verbose: bool = True):
     print("Streamlit session state:")
     print(context)
 
-    # Ensure that context['messages'] contains HumanMessage instances
-    if not context['messages']:
-        return "No messages provided."
-
-    # Access the last message's content correctly
-    query = context['messages'][-1].content  # Assuming messages are HumanMessage instances
-    memory = context['messages'][:-1]  # This should also be a list of HumanMessage instances
+    # Obtém a última pergunta e a memória (garante que não seja None)
+    if isinstance(context, list):
+        query = context[-1].content  # Se for uma lista de mensagens, pega o último elemento
+        memory = context[:-1]  # O restante vira memória
+    else:
+        query = context.get('messages', [])[-1]["content"]  # Garante que seja uma lista de mensagens
+        memory = context.get('messages', [])[:-1]  # Se não houver mensagens, será uma lista vazia
 
     # Estado inicial
     state = {
         "messages": [HumanMessage(content=query)],
         "actions": ["<BEGIN>"],
         "question": query,
-        "memory": memory,
+        "memory": [HumanMessage(content=m.content) for m in memory if m],  # Garantir que não seja None
         "attempts_count": 0
     }
 
+    # 🔍 DEBUG: Printar o estado antes de rodar stream()
+    print("===== DEBUG: Estado antes de rodar stream =====")
+    for key, value in state.items():
+        print(f"{key}: {type(value)} -> {value}")
+    print("================================================")
+
     try:
-        # Simulate streaming the workflow
+        max_iter = 10  # Evita loop infinito
+        count = 0
+
         for output in self.app.stream(state, {"recursion_limit": 100}, stream_mode='updates'):
             print("Output:", output)
+            count += 1
+            if count >= max_iter:
+                print("🚨 Loop interrompido para evitar travamento!")
+                break
 
-        # Get the final output
-        final_output = self.app.run(state)
-
-        # Assuming final_output is a list of messages
+        final_output = self.app.run(state["messages"])  # Passa apenas as mensagens
         final_message = " ".join([msg.content for msg in final_output])
+
     except Exception as e:
-        print("Houve um erro no processo:")
-        print(e)
-        final_message = "Encontramos um problema processando sua pergunta. Tente novamente, com outra abordagem."
+        print("Houve um erro no processo:", e)
+        final_message = "Encontramos um problema processando sua pergunta. Tente novamente."
 
     return final_message
