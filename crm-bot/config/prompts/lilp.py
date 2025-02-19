@@ -354,3 +354,58 @@ class MrAgent():
         workflow.add_conditional_edges("resposta", self.need_info, {"more_info": "mr_camp_enrich_agent", "ok": "END"})
         workflow.add_edge("sugest_pergunta", "END")
         self.app = workflow.compile()
+
+
+
+
+
+
+
+
+
+def run(self, input_data, verbose: bool = True):
+    """Handle both string inputs and full context dictionaries"""
+    # Parse input type
+    if isinstance(input_data, str):
+        # If input is a string, build context
+        context = {
+            "messages": [{"content": input_data}]
+        }
+    elif "messages" in input_data:
+        # If input is a proper context dict
+        context = input_data
+    else:
+        raise ValueError("Input must be string or context dictionary with 'messages' key")
+
+    print("Processing context:")
+    print(context)
+    
+    try:
+        # Extract last message
+        query = context['messages'][-1]["content"]
+        memory = context['messages'][:-1] if len(context['messages']) > 1 else []
+        
+        # Build initial state
+        state = {
+            "messages": [HumanMessage(content=query)],
+            "actions": ["<BEGIN>"],
+            "question": query,
+            "memory": memory,
+            "attempts_count": 0
+        }
+
+        # Execute workflow
+        for output in self.app.stream(state, {"recursion_limit": 100}, stream_mode='updates'):
+            if verbose:
+                print("Intermediate output:", output)
+        
+        # Get final result
+        final_output = self.app.run(state)
+        return " ".join([msg.content for msg in final_output])
+
+    except KeyError as e:
+        print(f"Missing key in context: {e}")
+        return "Invalid input format"
+    except Exception as e:
+        print(f"Processing error: {e}")
+        return "An error occurred during processing"
