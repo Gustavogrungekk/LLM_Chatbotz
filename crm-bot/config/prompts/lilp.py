@@ -46,7 +46,7 @@ class MrAgent():
     def __init__(self):
         # Inicializações de prompts e strings de template
 
-        # ############## PROMPT EXTRAÇÃO DE DATAS ##############
+        # PROMPT EXTRAÇÃO DE DATAS
         self.date_prompt = ChatPromptTemplate.from_messages([
             ("system", """
             Como analista de dados brasileiro especialista em python, sua função é extrair as informações relativas a data.
@@ -66,7 +66,7 @@ class MrAgent():
             ("user", "(question)")
         ])
 
-        # ############## PROMPT ENRIQUECIMENTO PERGUNTA MÁQUINA DE RESULTADOS CAMPANHA ##############
+        # PROMPT ENRIQUECIMENTO PERGUNTA MÁQUINA DE RESULTADOS CAMPANHA
         self.enrich_mr_camp_str = """
         Como engenheiro de prompt, sua função é reescrever e detalhar a pergunta de forma que um modelo de LLM consiga responder.
         
@@ -90,7 +90,7 @@ class MrAgent():
             MessagesPlaceholder(variable_name="messages")
         ])
 
-        # ############## PROMPT SQL GENERATION ##############
+        # PROMPT SQL GENERATION
         self.sql_gen_prompt_str = """
         Como especialista em AWS Athena e análise de dados bancários, sua função é criar queries SQL eficientes seguindo estas regras:
         **Tabela e Partições:**
@@ -137,7 +137,7 @@ class MrAgent():
             ("user", "Pergunta: {question}\nMetadados: {metadados}")
         ])
 
-        # ############## PROMPT MÁQUINA DE RESULTADOS CAMPANHA ##############
+        # PROMPT MÁQUINA DE RESULTADOS CAMPANHA
         self.mr_camp_prompt_str = """
         Como engenheiro de dados brasileiro, especializado em análise de dados bancários e engajamento do cliente, seu papel é responder exclusivamente a perguntas sobre a Máquina de Resultados, um conjunto de dados utilizado para acompanhar o desempenho de campanhas e ações de CRM.
         
@@ -162,7 +162,7 @@ class MrAgent():
             MessagesPlaceholder(variable_name="messages", n_message=1)
         ])
 
-        # == AGENTE DE VERIFICAÇÃO DE PERGUNTA ==
+        # PROMPT VERIFICAÇÃO DE PERGUNTA
         self.suges_pergunta_prompt_desc = """
         Você é um assistente de IA especializado em melhorar a clareza e a completude das perguntas dos usuários, especialmente após falhas no processo de análise.
         
@@ -184,7 +184,7 @@ class MrAgent():
             ("user", "(question)")
         ])
 
-        # Agente para análise de respostas
+        # PROMPT ANÁLISE DE RESPOSTA
         self.resposta_prompt_desc = """
         Você é um analista de dados brasileiro especializado em dados bancários e engajamento do cliente.
         
@@ -495,12 +495,11 @@ class MrAgent():
             return {"messages": [resposta]}
         else:
             resposta = "Mais informações:"
-            resposta = AIMessage(resposta)
-            return {"messages": [resposta]}
+            return {"messages": [AIMessage(content=resposta)]}
 
     def end_node(self, state):
-        # Nó final que retorna uma lista de mensagens válida
-        return {"messages": [AIMessage(content="Fim do workflow.")]}
+        # Nó final que retorna uma lista de mensagens válida (PromptValue)
+        return [AIMessage(content="Fim do workflow.")]
 
     def build_workflow(self):
         workflow = StateGraph(AgentState)
@@ -513,7 +512,7 @@ class MrAgent():
         workflow.add_node("mr_camp_action", self.call_tool)
         workflow.add_node("sugest_pergunta", self.call_sugest_pergunta)
         workflow.add_node("resposta", self.call_resposta)
-        # Nó final "END" definido com a função end_node
+        # Nó final "END" definido com a função end_node que retorna uma lista de BaseMessages
         workflow.add_node("END", self.end_node)
 
         workflow.set_entry_point("date_extraction")
