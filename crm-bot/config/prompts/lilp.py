@@ -10,7 +10,7 @@ from dateutil.relativedelta import relativedelta
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import BaseMessage, FunctionMessage, HumanMessage, ToolMessage, AIMessage
 from langchain_core.utils.function_calling import convert_to_openai_function, convert_to_openai_tool
-from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+from langchain_core.prompts import ChatPromptTemplate, MessagePlaceholder
 from langchain_core.output_parsers.openai_tools import JsonOutputKeyToolsParser
 from langchain_core.runnables import RunnableParallel
 from langchain.agents import Tool
@@ -49,7 +49,7 @@ class MrAgent():
         pass
 
     # ############## PROMPT EXTRAÇÃO DE DATAS ##############
-    self.date_prompt = ChatPromptTemplate.from_messages(
+    self.date_prompt = ChatPromptTemplate.from_messages([
         ("system", """
         Como analista de dados brasileiro especialista em python, sua função é extrair as informações relativas a data.
         
@@ -64,8 +64,9 @@ class MrAgent():
         
         Nunca forneça intervalos de data maiores que fevereiro de 2025.
         """),
-        (MessagesPlaceholder(variable_name="memory"), "user", "(question}")
-    )
+        MessagePlaceholder(variable_name="memory"),
+        ("user", "(question)")
+    ])
 
     # ############## PROMPT ENRIQUECIMENTO PERGUNTA MÁQUINA DE RESULTADOS CAMPANHA ##############
     self.enrich_mr_camp_str = """
@@ -86,13 +87,11 @@ class MrAgent():
     Considere que a pergunta possui o seguinte filtro na coluna 'safra': {date_filter}
     """
 
-    self.enrich_mr_camp_prompt = ChatPromptTemplate.from_messages(
-        [
-            ("system", self.enrich_mr_camp_str),
-            MessagePlaceholder(variable_name="memory"),
-            MessagePlaceholder(variable_name="messages")
-        ]
-    )
+    self.enrich_mr_camp_prompt = ChatPromptTemplate.from_messages([
+        ("system", self.enrich_mr_camp_str),
+        MessagePlaceholder(variable_name="memory"),
+        MessagePlaceholder(variable_name="messages")
+    ])
 
     # ############## PROMPT SQL GENERATION ##############
     self.sql_gen_prompt_str = """
@@ -162,12 +161,10 @@ class MrAgent():
     - Caso a pergunta contenha algum conceito que não está nos metadados, não infira uma resposta.
     - Retorne uma tabela em markdown sempre que for pedido.
     """
-    self.mr_camp_prompt = ChatPromptTemplate.from_messages(
-        [
-            ("system", self.mr_camp_prompt_str),
-            MessagePlaceholder(variable_name="messages", n_message=1)
-        ]
-    )
+    self.mr_camp_prompt = ChatPromptTemplate.from_messages([
+        ("system", self.mr_camp_prompt_str),
+        MessagePlaceholder(variable_name="messages", n_message=1)
+    ])
 
     #== AGENTE DE VERIFICAÇÃO DE PERGUNTA ==
     self.suges_pergunta_prompt_desc = """
@@ -185,10 +182,11 @@ class MrAgent():
     
     Se não souber o que responder, peça para o usuário confirmar seu entendimento da pergunta dele.
     """
-    self.suges_pergunta_prompt = ChatPromptTemplate.from_messages(
+    self.suges_pergunta_prompt = ChatPromptTemplate.from_messages([
         ("system", self.suges_pergunta_prompt_desc),
-        (MessagesPlaceholder(variable_name="memory"), "(question)")
-    )
+        MessagePlaceholder(variable_name="memory"),
+        ("user", "(question)")
+    ])
 
     # Agente para análise de respostas
     self.resposta_prompt_desc = """
@@ -212,13 +210,11 @@ class MrAgent():
     
     Mantenha um tom profissional e assertivo. Seja claro ao identificar erros ou lacunas, mas também colaborativo, sugerindo próximos passos de forma construtiva.
     """
-    self.resposta_prompt = ChatPromptTemplate.from_messages(
-        [
-            ("system", self.resposta_prompt_desc),
-            (MessagesPlaceholder(variable_name="memory"),),
-            (MessagesPlaceholder(variable_name="messages"),)
-        ]
-    )
+    self.resposta_prompt = ChatPromptTemplate.from_messages([
+        ("system", self.resposta_prompt_desc),
+        MessagePlaceholder(variable_name="memory"),
+        MessagePlaceholder(variable_name="messages")
+    ])
 
     def init_model(self):
         # Inicializa o modelo e ferramentas
@@ -240,8 +236,12 @@ class MrAgent():
         self.tools = [convert_to_openai_tool(t) for t in tools]
 
         # Agente enriquecedor da Máquina de Resultados Campanha
-        self.enrich_mr_camp_prompt = self.enrich_mr_camp_prompt.partial(table_description_mr=pdt.get_qstring_mr_camp())
-        self.enrich_mr_camp_prompt = self.enrich_mr_camp_prompt.partial(column_context_mr=dt.get_col_context_mr_camp())
+        self.enrich_mr_camp_prompt = self.enrich_mr_camp_prompt.partial(
+            table_description_mr=pdt.get_qstring_mr_camp()
+        )
+        self.enrich_mr_camp_prompt = self.enrich_mr_camp_prompt.partial(
+            column_context_mr=dt.get_col_context_mr_camp()
+        )
 
         # Define o modelo para o agente enriquecedor
         self.model_enrich_mr_camp = self.enrich_mr_camp_prompt | ChatOpenAI(model="gpt-4-0125-preview", temperature=0, seed=1)
@@ -253,7 +253,8 @@ class MrAgent():
         # Agente Máquina de Resultados Campanha (atualizado para utilizar o dataframe retornado pelo Athena)
         self.mr_camp_prompt = self.mr_camp_prompt.partial(column_context_mr=dt.get_col_context_mr_camp())
         self.model_mr_camp = self.mr_camp_prompt | ChatOpenAI(model="gpt-4-0125-preview", temperature=0, seed=1).bind_tools(
-            self.tools, parallel_tool_calls=False, tool_choice="evaluate_pandas_chain")
+            self.tools, parallel_tool_calls=False, tool_choice="evaluate_pandas_chain"
+        )
 
         # Definindo o prompt de data
         last_ref = (datetime.strptime(str(max(pdt.get_refs())), "%Y%m") + relativedelta(months=1)).strftime("%Y/%m/%d")
@@ -265,14 +266,24 @@ class MrAgent():
         self.date_extractor = RunnableParallel(pandas_str=partial_model, refs_list=lambda x: pdt.get_refs()) | ChatOpenAI(model="gpt-4-0125-preview", temperature=0, seed=1)
 
         # Inclusão do modelo para verificação da pergunta
-        self.suges_pergunta_prompt = self.suges_pergunta_prompt.partial(table_desc=pdt.get_qstring_mr_camp())
-        self.suges_pergunta_prompt = self.suges_pergunta_prompt.partial(metadados=dt.get_col_context_mr_camp())
+        self.suges_pergunta_prompt = self.suges_pergunta_prompt.partial(
+            table_desc=pdt.get_qstring_mr_camp()
+        )
+        self.suges_pergunta_prompt = self.suges_pergunta_prompt.partial(
+            metadados=dt.get_col_context_mr_camp()
+        )
         self.sugest_model = self.suges_pergunta_prompt | ChatOpenAI(model="gpt-4-0125-preview", temperature=0, seed=1)
 
         # Inclusão do verificador de resposta
-        self.resposta_prompt = self.resposta_prompt.partial(table_desc=pdt.get_qstring_mr_camp())
-        self.resposta_prompt = self.resposta_prompt.partial(metadados=dt.get_col_context_mr_camp())
-        self.resposta_model = self.resposta_prompt | ChatOpenAI(model="gpt-4-0125-preview", temperature=0, seed=1).bind_tools([ask_more_info], parallel_tool_calls=False)
+        self.resposta_prompt = self.resposta_prompt.partial(
+            table_desc=pdt.get_qstring_mr_camp()
+        )
+        self.resposta_prompt = self.resposta_prompt.partial(
+            metadados=dt.get_col_context_mr_camp()
+        )
+        self.resposta_model = self.resposta_prompt | ChatOpenAI(model="gpt-4-0125-preview", temperature=0, seed=1).bind_tools(
+            [ask_more_info], parallel_tool_calls=False
+        )
 
         # Construção do workflow
         self.build_workflow()
