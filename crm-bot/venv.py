@@ -158,15 +158,16 @@ Responda à pergunta do usuário de forma clara, concisa e detalhada.
         
         tools = [tool_evaluate_pandas_chain]
         self.tool_executor = ToolExecutor(tools)
-        self.tools = tools  # Lista das ferramentas
+        self.tools = tools
         
         # ========== CONFIGURAÇÃO DO EXTRATOR DE DATAS ==========
+        # Novo prompt: se a pergunta incluir referências explícitas de data/período, use essas; senão, retorne a última data disponível.
         self.date_prompt = ChatPromptTemplate.from_messages([
             ("system", """
-Extraia períodos no formato Athena:
-- Datas como strings 'YYYY'/'MM'
-- Se não houver data na pergunta, use a última data disponível conforme a consulta.
-- Priorize os últimos 3 meses se não especificado.
+Você é um especialista em extração de datas para consultas no AWS Athena.
+Sua tarefa é analisar a pergunta do usuário e extrair as informações de data (ano e mês) no formato de strings 'YYYY' e 'MM'.
+- Se a pergunta contiver referências temporais explícitas (por exemplo, 'janeiro de 2025', 'últimos 2 meses', etc.), extraia essas datas ou o intervalo correspondente.
+- Se a pergunta NÃO contiver nenhuma referência temporal, retorne a última data disponível, conforme informado: {latest_date}.
             """)
         ])
         self.date_prompt = self.date_prompt.partial(latest_date=self.athena_tool.get_latest_date())
@@ -357,7 +358,7 @@ Caso contrário, utilize a ferramenta 'ask_more_info' para solicitar mais dados.
             {"more_info": "mr_camp_enrich_agent", "ok": "END"}
         )
         workflow.add_edge("sugest_pergunta", "END")
-        self.app = workflow.build()  # Usando build() em vez de compile()
+        self.app = workflow.build()  # Usando build() conforme a nova versão do Langgraph
     
     def call_date_extractor(self, state):
         date_list = self.date_extractor.invoke(state)
