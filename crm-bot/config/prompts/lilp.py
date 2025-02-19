@@ -362,20 +362,20 @@ def run(self, context, verbose: bool = True):
     print("Streamlit session state:")
     print(context)
 
-    # Obtém a última pergunta e a memória (garante que não seja None)
+    # Obtém a última pergunta e a memória
     if isinstance(context, list):
-        query = context[-1].content  # Se for uma lista de mensagens, pega o último elemento
-        memory = context[:-1]  # O restante vira memória
+        query = context[-1].content  # Acessa o conteúdo diretamente, sem subscrição
+        memory = context[:-1]  # As mensagens anteriores
     else:
-        query = context.get('messages', [])[-1]["content"]  # Garante que seja uma lista de mensagens
-        memory = context.get('messages', [])[:-1]  # Se não houver mensagens, será uma lista vazia
+        query = context.get('messages', [])[-1].content  # Acessa o conteúdo corretamente
+        memory = context.get('messages', [])[:-1]  # Pega as mensagens anteriores
 
     # Estado inicial
     state = {
-        "messages": [HumanMessage(content=query)],
+        "messages": [HumanMessage(content=query)],  # Última mensagem
         "actions": ["<BEGIN>"],
         "question": query,
-        "memory": [HumanMessage(content=m.content) for m in memory if m],  # Garantir que não seja None
+        "memory": [HumanMessage(content=m.content) for m in memory if m],  # Mensagens anteriores
         "attempts_count": 0
     }
 
@@ -386,6 +386,7 @@ def run(self, context, verbose: bool = True):
     print("================================================")
 
     try:
+        # Simulação de fluxo
         max_iter = 10  # Evita loop infinito
         count = 0
 
