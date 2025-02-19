@@ -363,49 +363,33 @@ class MrAgent():
 
 
 
-def run(self, input_data, verbose: bool = True):
-    """Handle both string inputs and full context dictionaries"""
-    # Parse input type
-    if isinstance(input_data, str):
-        # If input is a string, build context
-        context = {
-            "messages": [{"content": input_data}]
-        }
-    elif "messages" in input_data:
-        # If input is a proper context dict
-        context = input_data
+def run(self, context, verbose: bool = True):
+    print("DEBUG - Tipo de context:", type(context))
+    print("DEBUG - Conteúdo de context:", context)
+
+    # Se context for uma lista, pegue o último item corretamente
+    if isinstance(context, list):
+        query = context[-1].content  # Agora acessamos corretamente!
+        memory = context[:-1]  # O restante da lista vira memória
     else:
-        raise ValueError("Input must be string or context dictionary with 'messages' key")
-
-    print("Processing context:")
-    print(context)
-    
-    try:
-        # Extract last message
         query = context['messages'][-1]["content"]
-        memory = context['messages'][:-1] if len(context['messages']) > 1 else []
-        
-        # Build initial state
-        state = {
-            "messages": [HumanMessage(content=query)],
-            "actions": ["<BEGIN>"],
-            "question": query,
-            "memory": memory,
-            "attempts_count": 0
-        }
+        memory = context['messages'][:-1]
 
-        # Execute workflow
+    state = {
+        "messages": [HumanMessage(content=query)],
+        "actions": ["<BEGIN>"],
+        "question": query,
+        "memory": memory,
+        "attempts_count": 0
+    }
+
+    try:
         for output in self.app.stream(state, {"recursion_limit": 100}, stream_mode='updates'):
-            if verbose:
-                print("Intermediate output:", output)
-        
-        # Get final result
+            print("Output:", output)
         final_output = self.app.run(state)
-        return " ".join([msg.content for msg in final_output])
-
-    except KeyError as e:
-        print(f"Missing key in context: {e}")
-        return "Invalid input format"
+        final_message = " ".join([msg.content for msg in final_output])
     except Exception as e:
-        print(f"Processing error: {e}")
-        return "An error occurred during processing"
+        print("Houve um erro no processo:", e)
+        final_message = "Encontramos um problema processando sua pergunta. Tente novamente."
+
+    return final_message
