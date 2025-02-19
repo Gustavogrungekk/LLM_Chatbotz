@@ -61,7 +61,7 @@ Colunas principais: {[c['name'] for c in self.metadata['columns']]}
     
     def get_latest_date(self):
         """
-        Obtém a data mais recente a partir da tabela no Athena, 
+        Obtém a data mais recente a partir da tabela no Athena,
         consultando os valores máximos dos campos de partição 'year' e 'month'.
         """
         try:
@@ -158,7 +158,7 @@ Responda à pergunta do usuário de forma clara, concisa e detalhada.
         
         tools = [tool_evaluate_pandas_chain]
         self.tool_executor = ToolExecutor(tools)
-        self.tools = [tool for tool in tools]
+        self.tools = tools  # Lista das ferramentas
         
         # ========== CONFIGURAÇÃO DO EXTRATOR DE DATAS ==========
         self.date_prompt = ChatPromptTemplate.from_messages([
@@ -203,11 +203,10 @@ Caso contrário, utilize a ferramenta 'ask_more_info' para solicitar mais dados.
             MessagesPlaceholder(variable_name="messages")
         ])
         self.model_enrich_mr_camp = self.suges_pergunta_prompt | ChatOpenAI(model="gpt-4-0125-preview", temperature=0, seed=1)
-        # O modelo de resposta vincula a ferramenta ask_more_info para casos onde informações adicionais sejam necessárias
         self.resposta_model = self.resposta_prompt | ChatOpenAI(model="gpt-4-0125-preview", temperature=0, seed=1) \
             .bind_tools([ask_more_info], parallel_tool_calls=False)
     
-    # ========== EXECUÇÃO DA QUERY GERADA ==========
+    # ========== EXECUÇÃO DA QUERY GERADA (nó mr_camp_action) ==========
     def call_tool(self, state):
         # Gera a query SQL utilizando o modelo configurado e os filtros extraídos
         query = self.sql_gen_model.invoke({
@@ -249,8 +248,12 @@ Caso contrário, utilize a ferramenta 'ask_more_info' para solicitar mais dados.
         # Obter filtros de data a partir da pergunta
         date_filter = self.get_date_filter(query)
         
-        inputs = {"messages": [HumanMessage(content=query)], "actions": ["<BEGIN>"], "question": query,
-                  "memory": memory, "date_filter": date_filter, "attempts_count": 0}
+        inputs = {"messages": [HumanMessage(content=query)],
+                  "actions": ["<BEGIN>"],
+                  "question": query,
+                  "memory": memory,
+                  "date_filter": date_filter,
+                  "attempts_count": 0}
         
         try:
             current_action = []
@@ -354,7 +357,7 @@ Caso contrário, utilize a ferramenta 'ask_more_info' para solicitar mais dados.
             {"more_info": "mr_camp_enrich_agent", "ok": "END"}
         )
         workflow.add_edge("sugest_pergunta", "END")
-        self.app = workflow.complile()
+        self.app = workflow.build()  # Usando build() em vez de compile()
     
     def call_date_extractor(self, state):
         date_list = self.date_extractor.invoke(state)
@@ -382,8 +385,10 @@ Caso contrário, utilize a ferramenta 'ask_more_info' para solicitar mais dados.
             resposta = AIMessage(resposta)
             return {"messages": [resposta]}
 
-# Função para execução de ferramentas (avaliação do chain)
-def call_tool(self, state):
+# ================================
+# FUNÇÃO EXTERNA RENOMEADA PARA EVITAR CONFLITO
+# ================================
+def execute_tool_chain(self, state):
     messages = state['messages']
     last_message = messages[-1]
     output_dict = {"messages": []}
@@ -450,3 +455,13 @@ Continue the chain with the following format: action_i -> action_i+1 ... -> <END
         print("TOOL OUTPUT")
         print(output_dict)
         return output_dict
+
+# ================================
+# Exemplo de Uso
+# ================================
+if __name__ == "__main__":
+    agent = MrAgent()
+    pergunta = "QUAL O POTENCIAL DO CANAL VAI E MCE NOS ÚLTIMOS 2 MESES?"
+    resultado = agent.run({"messages": [{"content": pergunta}]})
+    print("Resultado Final:")
+    print(resultado)
