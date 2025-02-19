@@ -163,14 +163,14 @@ Responda à pergunta do usuário de forma clara, concisa e detalhada.
         # O prompt agora exige retorno em JSON com "year" e "month"
         self.date_prompt = ChatPromptTemplate.from_messages([
             ("system", """
-Você é um especialista em extração de datas para consultas no AWS Athena.
-Sua tarefa é analisar a pergunta do usuário e extrair as informações de data no formato JSON com as chaves "year" e "month".
-- Se a pergunta contiver referências temporais explícitas (por exemplo, "janeiro de 2025", "últimos 2 meses", etc.), extraia essas informações.
-- Se a pergunta NÃO contiver nenhuma referência temporal, retorne a última data disponível conforme: {latest_date}.
-Por exemplo, retorne: {"year": "2025", "month": "01"}
-            """)
-        ])
-        self.date_prompt = self.date_prompt.partial(latest_date=self.athena_tool.get_latest_date())
+        Você é um especialista em extração de datas para consultas no AWS Athena.
+        Sua tarefa é analisar a pergunta do usuário e extrair as informações de data no formato JSON com as chaves "year" e "month".
+        - Se a pergunta contiver referências temporais explícitas (por exemplo, "janeiro de 2025", "últimos 2 meses", etc.), extraia essas informações.
+        - Se a pergunta NÃO contiver nenhuma referência temporal, retorne a última data disponível conforme: {latest_date}.
+        Por exemplo, retorne: {"year": "2025", "month": "01"}
+                    """),
+            ("user", "Pergunta do usuário: {question}")  # Adicionando a pergunta do usuário
+        ]).partial(latest_date=self.athena_tool.get_latest_date())
         self.date_extractor = (self.date_prompt | ChatOpenAI(model="gpt-4-0125-preview", temperature=0)
                                | StrOutputParser())
         
@@ -241,14 +241,12 @@ caso contrário, use a ferramenta 'ask_more_info' para solicitar mais dados.
     def get_date_filter(self, question: str) -> dict:
         result = self.date_extractor.invoke({"question": question})
         try:
-            # Tenta fazer o parse do resultado como JSON
             date_dict = json.loads(result)
             return date_dict
         except Exception as e:
             print("Falha ao parsear data filter:", result, e)
-            # Se não houver referência explícita, usa a última data disponível
             return self.athena_tool.get_latest_date()
-    
+        
     # ========== FLUXO PRINCIPAL ==========
     def run(self, context, verbose: bool = True):
         print("Streamlit session state:")
