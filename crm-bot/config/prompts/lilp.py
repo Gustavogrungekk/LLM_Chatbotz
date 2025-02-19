@@ -1,4 +1,3 @@
-# Basics
 import json
 import pandas as pd
 from typing import TypedDict, Annotated, Sequence, List
@@ -6,7 +5,7 @@ import operator
 from datetime import datetime
 from dateutil.relativedelta import relativedelta
 
-# Langchain
+# Imports do LangChain e afins
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import BaseMessage, FunctionMessage, HumanMessage, ToolMessage, AIMessage
 from langchain_core.utils.function_calling import convert_to_openai_function, convert_to_openai_tool
@@ -15,17 +14,17 @@ from langchain_core.output_parsers.openai_tools import JsonOutputKeyToolsParser
 from langchain_core.runnables import RunnableParallel
 from langchain.agents import Tool
 
-# Langgraph
+# Imports do LangGraph
 from langgraph.graph import StateGraph
 from langgraph.prebuilt import ToolExecutor, ToolInvocation
 
-# Rag tools
+# Imports das ferramentas Rag
 from rag_tools.pandas_tools import PandasTool
 from rag_tools.documents_tools import DocumentTool
 from rag_tools.date_tool import date_tool, DateToolDesc
 from rag_tools.more_info_tool import ask_more_info
 
-# Self-defined functions
+# Importa funções auxiliares
 from util_functions import get_last_chains
 
 # Define o tipo do estado
@@ -45,7 +44,7 @@ class AgentState(TypedDict):
 
 class MrAgent():
     def __init__(self):
-        # Inicializações dos prompts (todos definidos dentro do __init__ para uso do self)
+        # Inicialização dos prompts
         self.date_prompt = ChatPromptTemplate.from_messages([
             ("system", """
             Como analista de dados brasileiro especialista em python, sua função é extrair as informações relativas a data.
@@ -190,33 +189,27 @@ class MrAgent():
         # Inicializa os modelos e ferramentas
         self.init_model()
 
-    # --- Nós adaptados para retornar PromptValues ---
+    # MÉTODOS DOS NÓS DO WORKFLOW (todos retornam PromptValues ou strings)
+
     def call_date_extractor(self, state):
         date_list = self.date_extractor.invoke(state)
-        # Se date_list for uma lista de mensagens, converte para string; caso contrário, retorna como string
         if isinstance(date_list, list):
             return " ".join([msg.content for msg in date_list])
         return str(date_list)
 
     def call_model_mr_camp_enrich(self, state):
         response = self.model_enrich_mr_camp.invoke(state)
-        # Retorna uma lista de mensagens
         return [response]
 
     def call_sql_generator(self, state):
         response = self.sql_gen_model.invoke(state)
-        sql_query = response.content.strip()
-        # Retorna a query como string
-        return sql_query
+        return response.content.strip()
 
     def call_run_athena_query(self, state):
-        # Obtém a query da etapa anterior (que deve ser uma string)
         query = state.get("sql_query", "")
         if query:
             df = self.run_query(query)
-            # Armazena o dataframe no estado para uso posterior (side effect)
             state["df"] = df
-        # Retorna uma string vazia para não afetar o fluxo de prompt
         return ""
 
     def call_model_mr_camp(self, state):
@@ -234,18 +227,12 @@ class MrAgent():
         else:
             return [AIMessage(content="Mais informações:")]
 
-    def end_node(self, state):
-        return [AIMessage(content="Fim do workflow.")]
-
-    # Para simplificar, o nó que executa ferramentas agora retorna um resumo em string.
     def call_tool(self, state):
-        # Se houver chamadas de ferramenta no último message, executa e retorna um resumo.
         last_message = state["messages"][-1]
         if "tool_calls" in last_message.additional_kwargs:
             for tc in last_message.additional_kwargs["tool_calls"]:
                 tool_input = tc["function"]["arguments"]
                 tool_input_dict = json.loads(tool_input)
-                # Se necessário, modifique o dicionário com dados do estado
                 action = ToolInvocation(
                     tool=tc["function"]["name"],
                     tool_input=tool_input_dict
@@ -255,7 +242,38 @@ class MrAgent():
                 return summary
         return "Nenhuma ferramenta executada."
 
-    # --- Configuração dos modelos e workflow ---
+    def end_node(self, state):
+        return [AIMessage(content="Fim do workflow.")]
+
+    # MÉTODO RUN: Executa o workflow
+    def run(self, context, verbose: bool = True):
+        print("Streamlit session state:")
+        print(context)
+        query = context['messages'][-1]["content"]
+        memory = context['messages'][:-1]
+        # Estado inicial
+        state = {
+            "messages": [HumanMessage(content=query)],
+            "actions": ["<BEGIN>"],
+            "question": query,
+            "memory": memory,
+            "attempts_count": 0
+        }
+        try:
+            # Aqui simulamos o streaming do workflow
+            for output in self.app.stream(state, {"recursion_limit": 100}, stream_mode='updates'):
+                print("Output:", output)
+            # Ao final, pegamos o último output
+            final_output = self.app.run(state)
+            # Supomos que final_output seja uma lista de mensagens
+            final_message = " ".join([msg.content for msg in final_output])
+        except Exception as e:
+            print("Houve um erro no processo:")
+            print(e)
+            final_message = "Encontramos um problema processando sua pergunta. Tente novamente, com outra abordagem."
+        return final_message
+
+    # MÉTODO init_model: Configura modelos, ferramentas e workflow
     def init_model(self):
         pdt = PandasTool()
         self.pdt = pdt
@@ -268,7 +286,6 @@ class MrAgent():
         self.tool_executor = ToolExecutor(tools)
         self.tools = [convert_to_openai_tool(t) for t in tools]
 
-        # Configuração dos prompts e modelos
         self.enrich_mr_camp_prompt = self.enrich_mr_camp_prompt.partial(
             table_description_mr=pdt.get_qstring_mr_camp()
         ).partial(
@@ -320,7 +337,7 @@ class MrAgent():
         workflow.add_node("sql_generator", self.call_sql_generator)
         workflow.add_node("run_athena_query", self.call_run_athena_query)
         workflow.add_node("mr_camp_agent", self.call_model_mr_camp)
-        workflow.add_node("add_count", self.add_count)  # Função condicional, não é chamada diretamente para prompt
+        workflow.add_node("add_count", self.add_count)
         workflow.add_node("mr_camp_action", self.call_tool)
         workflow.add_node("sugest_pergunta", self.call_sugest_pergunta)
         workflow.add_node("resposta", self.call_resposta)
@@ -337,35 +354,3 @@ class MrAgent():
         workflow.add_conditional_edges("resposta", self.need_info, {"more_info": "mr_camp_enrich_agent", "ok": "END"})
         workflow.add_edge("sugest_pergunta", "END")
         self.app = workflow.compile()
-
-    def run_query(self, query: str):
-        inicio = datetime.now()
-        import awswrangler as wr
-        df = wr.athena.read_sql_query(
-            sql=query,
-            database='database_db_compartilhado_consumer_crmcoecampanhaspj',
-            workgroup='analytics-workspace-v3',
-            ctas_approach=False
-        )
-        if not hasattr(self, 'athenas_time'):
-            self.athenas_time = []
-        self.athenas_time.append(datetime.now() - inicio)
-        print(f"TEMPO EXEC ATHENA: {datetime.now() - inicio}")
-        return df
-
-    # As funções de condição (não precisam retornar PromptValues)
-    def should_ask(self, state):
-        last_message = state['messages'][-1]
-        if (("An exception occured" in last_message['content']) and (state['attempts_count'] >= 2)) or (state['attempts_count'] >= 4):
-            return "ask"
-        return "not_ask"
-
-    def add_count(self, state):
-        # Apenas atualiza a contagem; não é usado como prompt
-        return {"attempts_count": state['attempts_count'] + 1}
-
-    def need_info(self, state):
-        last_message = state['messages'][-1]
-        if isinstance(last_message, AIMessage) and last_message.content.startswith("Mais informações:"):
-            return "more_info"
-        return "ok"
