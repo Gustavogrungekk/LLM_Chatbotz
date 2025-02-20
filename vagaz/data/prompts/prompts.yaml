@@ -1,0 +1,18 @@
+test_mode: true
+fixed_date_enabled: true
+fixed_date_value: "year: '2025', month: '01'"
+
+context_enrichment: "Por favor, enriqueça o contexto para auxiliar na extração de informações: {context}"
+
+date_extraction: "Extraia as informações de data do seguinte contexto. Retorne os dados no formato: year: 'YYYY', month: 'MM'. Contexto: {context}"
+
+query_builder: |
+  Utilizando o contexto enriquecido: {context},
+  as informações temporais: {date_info},
+  e os metadados: {metadata},
+  construa uma query SQL para AWS Athena. A query deve contar o número de clientes com potencial utilizando:
+  COUNT(DISTINCT CASE WHEN potencial = 1 THEN cnpj END) como campo 'potencial'.
+
+insights: "Analise os seguintes dados (em CSV) e gere insights de negócio relevantes: {data}"
+
+dataviz: "Crie uma visualização interativa para os dados fornecidos."

@@ -1,57 +1,15 @@
-# ====================
-# Python Standard Libraries
-# ====================
 import os
-from pathlib import Path
-
-# ====================
-# Data Manipulation & Time Libraries
-# ====================
 import yaml
 import re
 import pandas as pd
 import awswrangler as wr
 from datetime import datetime
 from dateutil.relativedelta import relativedelta
-
-# ====================
-# Typing Libraries
-# ====================
-from typing import TypedDict, List, Dict
-
-# ====================
-# LangChain Libraries
-# ====================
-from langchain_core.messages import AIMessage
+from pathlib import Path
+from typing import TypedDict, List, Dict, Optional
+from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
 from langgraph.graph import StateGraph, END
-
-# ====================
-# Data Visualization Libraries
-# ====================
-import matplotlib.pyplot as plt
-import plotly.express as px
-import seaborn as sns
-
-# ====================
-# Image Processing Libraries
-# ====================
-from io import BytesIO
-import base64
-
-# ============================================================
-# INÍCIO DO CÓDIGO - AGENTE DE CONSULTAS E VISUALIZAÇÃO-CRM
-# ============================================================
-# Este código gerencia a execução de consultas SQL no AWS Athena,
-# processa os resultados, e gera visualizações com Plotly, Seaborn e Matplotlib.
-# 
-# A sequência de etapas inclui:
-# 1. Extração de filtros de datas
-# 2. Geração de queries SQL
-# 3. Execução de queries no Athena
-# 4. Formatação e visualização dos resultados
-# ============================================================
-
 
 # ====================
 # Configurações Base
@@ -78,76 +36,38 @@ class PromptManager:
         return self.personas[persona]['template'].format(**kwargs)
 
 # ====================
-# Gerenciador Athena
+# Validador de Queries
 # ====================
-class AthenaManager:
-    def __init__(self, table_name: str):
-        self.config = ConfigLoader.load_table_config(table_name)
-        self.validator = QueryValidator(self.config)
-    
-    def execute_query(self, query: str) -> pd.DataFrame:
-        validation = self.validator.validate(query)
-        if not validation['valid']:
-            raise ValueError(validation['error'])
-        
-        try:
-            return wr.athena.read_sql_query(
-                sql=query + f" LIMIT {self.config['security']['maximum_rows']}",
-                database=self.config['database'],
-                workgroup=self.config['workgroup'],
-                ctas_approach=True
-            )
-        except Exception as e:
-            raise RuntimeError(f"Erro Athena: {str(e)}")
-
 class QueryValidator:
     def __init__(self, config: dict):
         self.config = config
-    
+
     def validate(self, query: str) -> dict:
-        if any(op in query.upper() for op in self.config['security']['forbidden_operations']):
+        # Verificar operações proibidas
+        forbidden_ops = self.config['security']['forbidden_operations']
+        if any(op in query.upper() for op in forbidden_ops):
             return {'valid': False, 'error': 'Operação proibida'}
         
+        # Verificar partições obrigatórias
         required_partitions = ['year', 'month', 'canal']
         for partition in required_partitions:
-            if not re.search(fr"{partition}\s*=[\s'\d]+", query, re.IGNORECASE):
-                return {'valid': False, 'error': f"Filtro {partition} ausente"}
+            pattern = fr"{partition}\s*=\s*(?:'[^']+'|\"[^\"]+\"|\d+)"
+            if not re.search(pattern, query, re.IGNORECASE):
+                return {'valid': False, 'error': f"Filtro obrigatório '{partition}' ausente ou com formato inválido"}
         
         return {'valid': True}
 
 # ====================
-# Data Viz Expert
+# Definição do Estado
 # ====================
-class DataVizExpert:
-    def __init__(self):
-        pass
-    
-    def create_bar_chart(self, df, x_col, y_col, title="Gráfico de Barras"):
-        """Cria um gráfico de barras com Plotly."""
-        fig = px.bar(df, x=x_col, y=y_col, title=title)
-        return self._encode_image(fig)
-
-    def create_line_chart(self, df, x_col, y_col, title="Gráfico de Linhas"):
-        """Cria um gráfico de linhas com Plotly."""
-        fig = px.line(df, x=x_col, y=y_col, title=title)
-        return self._encode_image(fig)
-
-    def create_histogram(self, df, column, title="Histograma"):
-        """Cria um histograma com Seaborn."""
-        plt.figure(figsize=(8, 6))
-        sns.histplot(df[column], kde=True, color='blue')
-        plt.title(title)
-        plt.xlabel(column)
-        plt.ylabel('Frequência')
-        return self._encode_image(plt)
-
-    def _encode_image(self, figure):
-        """Codifica a figura gerada para base64 (para exibição em um chat)."""
-        img_stream = BytesIO()
-        figure.write_image(img_stream, format='png')  # Pode ser .png, .jpeg, etc.
-        img_stream.seek(0)
-        img_base64 = base64.b64encode(img_stream.read()).decode('utf-8')
-        return img_base64
+class AgentState(TypedDict):
+    question: str
+    filters: Optional[Dict[str, List[str]]]
+    raw_query: Optional[str]
+    validated_query: Optional[str]
+    data: Optional[pd.DataFrame]
+    response: Optional[str]
+    error: Optional[str]
 
 # ====================
 # Núcleo do Agente
@@ -155,76 +75,103 @@ class DataVizExpert:
 class MrAgent:
     def __init__(self, table_name: str = 'crm_metadata'):
         self.table_name = table_name
-        self.athena = AthenaManager(table_name)
+        self.config = ConfigLoader.load_table_config(table_name)
+        self.validator = QueryValidator(self.config)
         self.llm = ChatOpenAI(model="gpt-4-turbo")
         self.prompts = PromptManager()
-        self.data_viz = DataVizExpert()  # Adicionando o especialista em visualização
         self.workflow = self._build_workflow()
     
     def _build_workflow(self):
-        workflow = StateGraph(TypedDict)
+        workflow = StateGraph(AgentState)
         
         workflow.add_node("extract_filters", self.extract_filters)
         workflow.add_node("generate_query", self.generate_query)
+        workflow.add_node("validate_query", self.validate_query)
         workflow.add_node("execute_query", self.execute_query)
         workflow.add_node("format_response", self.format_response)
-        workflow.add_node("generate_visualization", self.generate_visualization)  # Nova etapa
         
         workflow.set_entry_point("extract_filters")
+        
         workflow.add_edge("extract_filters", "generate_query")
-        workflow.add_edge("generate_query", "execute_query")
+        workflow.add_conditional_edges(
+            "generate_query",
+            self.check_query_generated,
+            {
+                "valid": "validate_query",
+                "invalid": END
+            }
+        )
+        workflow.add_conditional_edges(
+            "validate_query",
+            self.check_query_valid,
+            {
+                "valid": "execute_query",
+                "invalid": END
+            }
+        )
         workflow.add_edge("execute_query", "format_response")
-        workflow.add_edge("format_response", "generate_visualization")  # Conectando
-        workflow.add_edge("generate_visualization", END)
+        workflow.add_edge("format_response", END)
         
         return workflow.compile()
-    
-    # Nova função para gerar visualizações
-    def generate_visualization(self, state: dict):
-        try:
-            df = state['data']
-            # Exemplo de gráfico gerado (pode ser personalizado de acordo com a pergunta)
-            chart_img = self.data_viz.create_bar_chart(df, x_col='category', y_col='total_sales', title="Total de Vendas por Categoria")
-            return {'chart': chart_img}
-        except Exception as e:
-            return {'error': f"Erro na geração do gráfico: {str(e)}"}
-    
-    def extract_filters(self, state: dict):
+
+    def extract_filters(self, state: AgentState) -> AgentState:
         try:
             prompt = self.prompts.get_prompt(
                 "date_extractor",
-                current_date=datetime.now().strftime('%Y-%m-%d'),
-                last_month=(datetime.now() - relativedelta(months=1)).strftime('%Y-%m')
+                current_date=datetime.now().strftime('%Y-%m-%d')
             )
             filters = self.llm.invoke(prompt).content
-            return {'filters': eval(filters)}  # Converte string para dict
+            print(f"Filtros extraídos:\n{filters}")  # DEBUG
+            return {**state, "filters": eval(filters)}
         except Exception as e:
-            return {'error': f"Erro extração datas: {str(e)}"}
-    
-    def generate_query(self, state: dict):
+            return {**state, "error": f"Erro na extração de filtros: {str(e)}"}
+
+    def generate_query(self, state: AgentState) -> AgentState:
         try:
-            config = self.athena.config
+            config = self.config
             prompt = self.prompts.get_prompt(
                 "query_generator",
                 question=state['question'],
                 table_name=config['name'],
                 partitions=", ".join([p['name'] for p in config['partitions']]),
-                ignore_values=str([col['ignore_values'] for col in config['columns'] if 'ignore_values' in col]),
                 query_examples="\n".join([ex['sql'] for ex in config['query_examples']]),
                 max_rows=config['security']['maximum_rows']
             )
-            return {'query': self.llm.invoke(prompt).content}
+            raw_query = self.llm.invoke(prompt).content
+            print(f"Query bruta gerada:\n{raw_query}")  # DEBUG
+            return {**state, "raw_query": raw_query}
         except Exception as e:
-            return {'error': f"Erro geração query: {str(e)}"}
-    
-    def execute_query(self, state: dict):
+            return {**state, "error": f"Erro na geração da query: {str(e)}"}
+
+    def check_query_generated(self, state: AgentState) -> str:
+        return "valid" if state.get("raw_query") else "invalid"
+
+    def validate_query(self, state: AgentState) -> AgentState:
+        validation = self.validator.validate(state['raw_query'])
+        if not validation['valid']:
+            return {**state, "error": f"Query inválida: {validation['error']}"}
+        print(f"Query validada com sucesso:\n{state['raw_query']}")  # DEBUG
+        return {**state, "validated_query": state['raw_query']}
+
+    def check_query_valid(self, state: AgentState) -> str:
+        return "valid" if state.get("validated_query") else "invalid"
+
+    def execute_query(self, state: AgentState) -> AgentState:
         try:
-            df = self.athena.execute_query(state['query'])
-            return {'data': df}
+            df = wr.athena.read_sql_query(
+                sql=state['validated_query'],
+                database=self.config['database'],
+                workgroup=self.config['workgroup'],
+                ctas_approach=True
+            )
+            if df.empty:
+                raise ValueError("Nenhum dado retornado pela query")
+            print(f"Dados obtidos ({len(df)} linhas):\n{df.head(2)}")  # DEBUG
+            return {**state, "data": df}
         except Exception as e:
-            return {'error': str(e)}
-    
-    def format_response(self, state: dict):
+            return {**state, "error": f"Erro na execução: {str(e)}"}
+
+    def format_response(self, state: AgentState) -> AgentState:
         try:
             prompt = self.prompts.get_prompt(
                 "response_formatter",
@@ -233,22 +180,25 @@ class MrAgent:
                 filters=state['filters']['filter_expression']
             )
             response = self.llm.invoke(prompt).content
-            return {'response': response}
+            return {**state, "response": response}
         except Exception as e:
-            return {'error': f"Erro formatação: {str(e)}"}
-    
-    def run(self, question: str):
-        result = self.workflow.invoke({'question': question})
-        return result.get('response', 'Erro ao processar solicitação')
+            return {**state, "error": f"Erro na formatação: {str(e)}"}
 
-# ====================
-# Exemplo de Uso
-# ====================
+    def run(self, question: str) -> str:
+        initial_state: AgentState = {
+            "question": question,
+            "filters": None,
+            "raw_query": None,
+            "validated_query": None,
+            "data": None,
+            "response": None,
+            "error": None
+        }
+        result = self.workflow.invoke(initial_state)
+        return result.get("response") or f"Erro: {result.get('error', 'Erro desconhecido')}"
+
+# Exemplo de uso
 if __name__ == "__main__":
     agent = MrAgent()
-    
-    # # Consulta válida
-    # print(agent.run("Qual o potencial médio por produto no canal VAI nos últimos 2 meses?"))
-    
-    # # Consulta inválida
-    # print(agent.run("DELETE FROM tabela WHERE year = 2023"))
+    resposta = agent.run("Qual a taxa de conversão em janeiro de 2024?")
+    print("\nResposta final:\n", resposta)

@@ -1,3 +1,4 @@
+
 date_extractor:
   description: "Especialista em extração de intervalos temporais, conversão para filtros AWS Athena, e interpretação de períodos relativos."
   template: |
