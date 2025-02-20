@@ -1,4 +1,12 @@
-# app/src/advanced_agent.py
+"""
+Dependencies and Recommended Versions:
+- PyYAML==6.0
+- awswrangler==2.19.0
+- pandas==1.5.0
+- langchain==0.0.148
+- langgraph==0.1.0  # (or the version that supports the StateGraph API below)
+- plotly==5.13.0     # if using Plotly for visualization
+"""
 
 import yaml
 import time
@@ -315,8 +323,12 @@ class AdvancedAgent:
             response="",
             error=""
         )
-        # Run the workflow; here we assume the compiled workflow has a run() method.
-        final_state = self.workflow.run(initial_state)
+        try:
+            # Execute the workflow by calling the compiled workflow with the initial state.
+            final_state = self.workflow(initial_state)
+        except Exception as e:
+            return {"error": str(e)}
+        
         if final_state.error:
             return {"error": final_state.error}
         return final_state.response
