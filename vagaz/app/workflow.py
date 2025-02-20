@@ -8,7 +8,18 @@ from langchain.chat_models import ChatOpenAI
 from langchain.chains import LLMChain
 from langchain.prompts import PromptTemplate
 from langgraph.graph import StateGraph, END  # For workflow orchestration
-from typing import Annotated
+from typing import NamedTuple
+
+# Define the state schema as a NamedTuple (immutable and hashable)
+class AgentState(NamedTuple):
+    input: str
+    enriched_context: str
+    date_info: str
+    query: str
+    insights: str
+    visualization: str
+    response: str
+    error: str
 
 # Helper function to load LLM configuration
 def get_llm():
@@ -19,10 +30,6 @@ def get_llm():
         temperature=llm_config.get("temperature", 0),
         seed=llm_config.get("seed", 1)
     )
-
-# Define a dummy reducer that returns the value as is.
-def identity_reducer(value):
-    return value
 
 # CuriosityAgent: Generates dynamic curiosities based on a pre-defined topic.
 class CuriosityAgent:
@@ -187,17 +194,9 @@ class AdvancedAgent:
         self.build_workflow()
 
     def build_workflow(self):
-        # Define a state schema as a dictionary with expected types using Annotated.
-        state_schema = {
-            "input": str,
-            "enriched_context": Annotated[str, identity_reducer],
-            "date_info": Annotated[str, identity_reducer],
-            "query": Annotated[str, identity_reducer],
-            "insights": Annotated[str, identity_reducer],
-            "visualization": Annotated[str, identity_reducer],
-            "response": Annotated[str, identity_reducer],
-            "error": Annotated[str, identity_reducer],
-        }
+        # Define a state schema as a NamedTuple type for hashability.
+        # All fields are strings.
+        state_schema = AgentState
         sg = StateGraph(state_schema)
         sg.add_node("enrich_context", self.state_enrich_context)
         sg.add_node("validate_context", self.state_validate_context)
@@ -220,35 +219,26 @@ class AdvancedAgent:
         
         self.workflow = sg.compile()
 
-    def state_enrich_context(self, state):
-        context = state["input"]
-        enriched = self.context_enricher.enrich(context)
-        state["enriched_context"] = enriched
-        return state
+    def state_enrich_context(self, state: AgentState) -> AgentState:
+        enriched = self.context_enricher.enrich(state.input)
+        return state._replace(enriched_context=enriched)
 
-    def state_validate_context(self, state):
-        enriched = state["enriched_context"]
+    def state_validate_context(self, state: AgentState) -> AgentState:
         for topic in self.forbidden_topics:
-            if topic.lower() in enriched.lower():
-                state["error"] = f"A consulta contém o tópico '{topic}', que está fora do escopo permitido. Por favor, reformule a pergunta."
-                return state
+            if topic.lower() in state.enriched_context.lower():
+                return state._replace(error=f"A consulta contém o tópico '{topic}', que está fora do escopo permitido. Por favor, reformule a pergunta.")
         return state
 
-    def state_extract_dates(self, state):
-        enriched = state["enriched_context"]
-        dates = self.date_extractor.extract(enriched)
-        state["date_info"] = dates
-        return state
+    def state_extract_dates(self, state: AgentState) -> AgentState:
+        dates = self.date_extractor.extract(state.enriched_context)
+        return state._replace(date_info=dates)
 
-    def state_build_query(self, state):
-        enriched = state["enriched_context"]
-        dates = state["date_info"]
-        query = self.query_builder.build(enriched, dates)
-        state["query"] = query
-        return state
+    def state_build_query(self, state: AgentState) -> AgentState:
+        query = self.query_builder.build(state.enriched_context, state.date_info)
+        return state._replace(query=query)
 
-    def state_execute_query(self, state):
-        query = state["query"]
+    def state_execute_query(self, state: AgentState) -> AgentState:
+        query = state.query
         max_attempts = 3
         attempt = 0
         timeout_minutes = 2
@@ -267,47 +257,69 @@ class AdvancedAgent:
                 attempt += 1
                 elapsed = time.time() - start_time
                 if elapsed > timeout_minutes * 60:
-                    state["error"] = "A consulta demorou demais ou encontrou um erro."
-                    return state
+                    return state._replace(error="A consulta demorou demais ou encontrou um erro.")
                 curiosity = self.curiosity_agent.get_curiosity()
                 print(f"Enquanto consultamos os dados, aqui vai uma curiosidade: {curiosity} | Tentativa: {attempt}")
                 time.sleep(10)
-        state["df"] = df  # df is stored separately
-        return state
+        # Since df is unhashable, we store it separately in state via a temporary key.
+        state_dict = state._asdict()
+        state_dict["df"] = df
+        # Convert back to AgentState ignoring 'df'
+        new_state = AgentState(
+            input=state_dict["input"],
+            enriched_context=state_dict["enriched_context"],
+            date_info=state_dict["date_info"],
+            query=state_dict["query"],
+            insights=state_dict["insights"],
+            visualization=state_dict["visualization"],
+            response=state_dict["response"],
+            error=state_dict["error"]
+        )
+        # Attach df to the state object as an attribute (not part of the schema)
+        new_state.df = df  
+        return new_state
 
-    def state_generate_insights(self, state):
-        df = state["df"]
+    def state_generate_insights(self, state: AgentState) -> AgentState:
+        df = getattr(state, "df", None)
         insights = self.insights_agent.generate(df)
-        state["insights"] = insights
-        return state
+        return state._replace(insights=insights)
 
-    def state_generate_visualization(self, state):
-        df = state["df"]
+    def state_generate_visualization(self, state: AgentState) -> AgentState:
+        df = getattr(state, "df", None)
         viz = self.dataviz_agent.plot(df, metadata=str(self.metadata))
-        state["visualization"] = viz
-        return state
+        return state._replace(visualization=viz)
 
-    def state_compose_response(self, state):
+    def state_compose_response(self, state: AgentState) -> AgentState:
         response = (
             "**Resposta do Agente:**\n\n"
             "📊 **Resultados da Análise**\n"
-            f"{state['insights']}\n\n"
+            f"{state.insights}\n\n"
             "📈 **Visualização:**\n"
-            f"{state['visualization']}\n\n"
+            f"{state.visualization}\n\n"
             "🔧 **Query Executada:**\n"
-            f"```sql\n{state['query']}\n```"
+            f"```sql\n{state.query}\n```"
         )
-        state["response"] = response
-        return state
+        return state._replace(response=response)
 
     def run(self, input_data):
         # Expect a dictionary with the key "context"
         context = input_data.get("context")
-        initial_state = {"input": context}
+        # Create the initial state as an AgentState NamedTuple.
+        initial_state = AgentState(
+            input=context,
+            enriched_context="",
+            date_info="",
+            query="",
+            insights="",
+            visualization="",
+            response="",
+            error=""
+        )
+        # Run the workflow; here we assume the compiled workflow has a run() method.
         final_state = self.workflow.run(initial_state)
-        if "error" in final_state:
-            return {"error": final_state["error"]}
-        return final_state.get("response", "Nenhuma resposta gerada.")
+        if final_state.error:
+            return {"error": final_state.error}
+        return final_state.response
 
 # Example execution of the advanced agent
 if __name__ == "__main__":
