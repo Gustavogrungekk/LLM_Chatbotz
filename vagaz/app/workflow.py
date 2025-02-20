@@ -7,14 +7,9 @@ import pandas as pd
 from langchain.chat_models import ChatOpenAI
 from langchain.chains import LLMChain
 from langchain.prompts import PromptTemplate
-from langgraph.graph import StateGraph, END  # Using LangGraph for workflow orchestration
-from collections import namedtuple
+from langgraph.graph import StateGraph, END  # For workflow orchestration
 
-# Define a namedtuple for state if needed (only for hashable schema purposes)
-StateSchema = namedtuple("StateSchema", [
-    "input", "enriched_context", "date_info", "query", "insights", "visualization", "response", "error"
-])
-
+# Helper function to load LLM configuration
 def get_llm():
     with open('config/llm_config.yaml', 'r', encoding='utf-8') as f:
         llm_config = yaml.safe_load(f)
@@ -68,7 +63,7 @@ class DateExtractor:
         chain = LLMChain(llm=self.llm, prompt=template)
         return chain.run(context=context)
 
-# QueryBuilder: Builds a SQL query with comments, using metadata and date information.
+# QueryBuilder: Builds a SQL query (with comments) using metadata and date information.
 class QueryBuilder:
     def __init__(self, prompt, metadata):
         self.prompt = prompt
@@ -95,13 +90,13 @@ class InsightsAgent:
         chain = LLMChain(llm=self.llm, prompt=template)
         return chain.run(data=data_str)
 
-# DataVizAgent: Chooses dynamically from a set of plot types defined in a YAML file.
+# DataVizAgent: Dynamically chooses a plot type based on a YAML configuration and generates a plot.
 class DataVizAgent:
     def __init__(self, prompt, config_path="config/dataviz_config.yaml"):
         self.prompt = prompt
         with open(config_path, "r", encoding="utf-8") as f:
             self.viz_config = yaml.safe_load(f)
-        self.library = "plotly"  # Default library
+        self.library = "plotly"  # Default visualization library
         self.llm = get_llm()
     
     def choose_plot_type(self, metadata, df):
@@ -111,7 +106,7 @@ class DataVizAgent:
             "{metadata}\n\n"
             "E considerando as colunas disponíveis no DataFrame: {columns}, "
             "escolha o tipo de gráfico mais adequado dentre as seguintes opções: {options}. "
-            "Retorne apenas o nome do gráfico (exemplo: 'bar', 'line', 'scatter', ou 'pie')."
+            "Retorne apenas o nome do gráfico (exemplo: 'bar', 'line', 'scatter' ou 'pie')."
         )
         columns = ", ".join(df.columns)
         options = ", ".join(available)
@@ -126,7 +121,6 @@ class DataVizAgent:
     def plot(self, df, metadata=""):
         import plotly.express as px
         plot_type = self.choose_plot_type(metadata, df)
-        
         if self.library == "plotly":
             if plot_type == "bar":
                 fig = px.bar(df, x=df.columns[0], y=df.columns[1], title="Visualização do Potencial")
@@ -163,7 +157,7 @@ class DataVizAgent:
                 ax.set_title("Visualização do Potencial")
             return "Visualização gerada com matplotlib."
 
-# AdvancedAgent: Orchestrates the workflow using a state graph.
+# AdvancedAgent: Orchestrates the entire workflow using a state graph.
 class AdvancedAgent:
     def __init__(self):
         with open('data/metadata/metadata.yaml', 'r', encoding='utf-8') as meta_file:
@@ -188,8 +182,8 @@ class AdvancedAgent:
         self.build_workflow()
 
     def build_workflow(self):
-        # Define a state schema using only hashable types.
-        state_schema = {
+        # Define a state schema with only hashable types using a frozenset of items.
+        state_schema = frozenset({
             "input": str,
             "enriched_context": str,
             "date_info": str,
@@ -198,7 +192,7 @@ class AdvancedAgent:
             "visualization": str,
             "response": str,
             "error": str,
-        }
+        }.items())
         sg = StateGraph(state_schema)
         sg.add_node("enrich_context", self.state_enrich_context)
         sg.add_node("validate_context", self.state_validate_context)
@@ -273,8 +267,8 @@ class AdvancedAgent:
                 curiosity = self.curiosity_agent.get_curiosity()
                 print(f"Enquanto consultamos os dados, aqui vai uma curiosidade: {curiosity} | Tentativa: {attempt}")
                 time.sleep(10)
-        # Note: We do not add df to the schema (since it's unhashable) but use it here.
-        state["df"] = df  # Not part of state_schema
+        # Save the DataFrame in state (not part of the schema)
+        state["df"] = df  
         return state
 
     def state_generate_insights(self, state):
@@ -306,7 +300,6 @@ class AdvancedAgent:
         # Expect a dictionary with the key "context"
         context = input_data.get("context")
         initial_state = {"input": context}
-        # Use execute() instead of run() for the compiled workflow
         final_state = self.workflow.execute(initial_state)
         if "error" in final_state:
             return {"error": final_state["error"]}
