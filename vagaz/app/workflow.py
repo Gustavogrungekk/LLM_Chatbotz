@@ -182,7 +182,7 @@ class AdvancedAgent:
         self.build_workflow()
 
     def build_workflow(self):
-        # Define a state schema with only hashable types.
+        # Define a state schema as a dictionary with only hashable types.
         state_schema = {
             "input": str,
             "enriched_context": str,
@@ -193,9 +193,7 @@ class AdvancedAgent:
             "response": str,
             "error": str,
         }
-        # Convert the schema dict to a frozenset of items (hashable)
-        schema_frozen = frozenset(state_schema.items())
-        sg = StateGraph(schema_frozen)
+        sg = StateGraph(state_schema)
         sg.add_node("enrich_context", self.state_enrich_context)
         sg.add_node("validate_context", self.state_validate_context)
         sg.add_node("extract_dates", self.state_extract_dates)
@@ -269,7 +267,7 @@ class AdvancedAgent:
                 curiosity = self.curiosity_agent.get_curiosity()
                 print(f"Enquanto consultamos os dados, aqui vai uma curiosidade: {curiosity} | Tentativa: {attempt}")
                 time.sleep(10)
-        state["df"] = df  # Store DataFrame outside of schema
+        state["df"] = df  # 'df' is stored separately; not part of the state schema.
         return state
 
     def state_generate_insights(self, state):
@@ -301,7 +299,6 @@ class AdvancedAgent:
         # Expect a dictionary with the key "context"
         context = input_data.get("context")
         initial_state = {"input": context}
-        # Call the workflow's run() method explicitly
         final_state = self.workflow.run(initial_state)
         if "error" in final_state:
             return {"error": final_state["error"]}
