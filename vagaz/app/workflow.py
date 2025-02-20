@@ -8,6 +8,7 @@ from langchain.chat_models import ChatOpenAI
 from langchain.chains import LLMChain
 from langchain.prompts import PromptTemplate
 from langgraph.graph import StateGraph, END  # For workflow orchestration
+from typing import Annotated
 
 # Helper function to load LLM configuration
 def get_llm():
@@ -18,6 +19,10 @@ def get_llm():
         temperature=llm_config.get("temperature", 0),
         seed=llm_config.get("seed", 1)
     )
+
+# Define a dummy reducer that returns the value as is.
+def identity_reducer(value):
+    return value
 
 # CuriosityAgent: Generates dynamic curiosities based on a pre-defined topic.
 class CuriosityAgent:
@@ -182,16 +187,16 @@ class AdvancedAgent:
         self.build_workflow()
 
     def build_workflow(self):
-        # Define a state schema as a dictionary with only hashable types.
+        # Define a state schema as a dictionary with expected types using Annotated.
         state_schema = {
             "input": str,
-            "enriched_context": str,
-            "date_info": str,
-            "query": str,
-            "insights": str,
-            "visualization": str,
-            "response": str,
-            "error": str,
+            "enriched_context": Annotated[str, identity_reducer],
+            "date_info": Annotated[str, identity_reducer],
+            "query": Annotated[str, identity_reducer],
+            "insights": Annotated[str, identity_reducer],
+            "visualization": Annotated[str, identity_reducer],
+            "response": Annotated[str, identity_reducer],
+            "error": Annotated[str, identity_reducer],
         }
         sg = StateGraph(state_schema)
         sg.add_node("enrich_context", self.state_enrich_context)
@@ -267,7 +272,7 @@ class AdvancedAgent:
                 curiosity = self.curiosity_agent.get_curiosity()
                 print(f"Enquanto consultamos os dados, aqui vai uma curiosidade: {curiosity} | Tentativa: {attempt}")
                 time.sleep(10)
-        state["df"] = df  # 'df' is stored separately; not part of the state schema.
+        state["df"] = df  # df is stored separately
         return state
 
     def state_generate_insights(self, state):
