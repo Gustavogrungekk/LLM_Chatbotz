@@ -1,14 +1,14 @@
 def build_workflow(self):
+    # Define a state schema that excludes unhashable fields (like 'df')
     state_schema = {
         "input": str,
         "enriched_context": str,
         "date_info": str,
         "query": str,
-        "df": object,
         "insights": str,
         "visualization": str,
         "response": str,
-        "error": str
+        "error": str,
     }
     sg = StateGraph(state_schema)
     sg.add_node("enrich_context", self.state_enrich_context)
