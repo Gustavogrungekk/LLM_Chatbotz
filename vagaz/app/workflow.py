@@ -16,9 +16,9 @@ from langchain.chat_models import ChatOpenAI
 from langchain.chains import LLMChain
 from langchain.prompts import PromptTemplate
 from langgraph.graph import StateGraph, END  # For workflow orchestration
-from typing import NamedTuple
+from typing import NamedTuple, Any, Optional
 
-# Define the state schema as a NamedTuple (immutable and hashable)
+# Update AgentState to include an optional 'df' field.
 class AgentState(NamedTuple):
     input: str
     enriched_context: str
@@ -28,6 +28,7 @@ class AgentState(NamedTuple):
     visualization: str
     response: str
     error: str
+    df: Optional[Any] = None
 
 # Helper function to load LLM configuration
 def get_llm():
@@ -91,7 +92,7 @@ class QueryBuilder:
         self.llm = get_llm()
     
     def build(self, context, date_info):
-        # Convert the metadata dictionary to a formatted YAML string for better readability.
+        # Convert the metadata dictionary to a formatted YAML string.
         formatted_metadata = yaml.dump(self.metadata)
         template = PromptTemplate(
             template=self.prompt,
@@ -271,30 +272,15 @@ class AdvancedAgent:
                 curiosity = self.curiosity_agent.get_curiosity()
                 print(f"Enquanto consultamos os dados, aqui vai uma curiosidade: {curiosity} | Tentativa: {attempt}")
                 time.sleep(10)
-        # Since df is unhashable, we store it separately in state via a temporary key.
-        state_dict = state._asdict()
-        state_dict["df"] = df
-        new_state = AgentState(
-            input=state_dict["input"],
-            enriched_context=state_dict["enriched_context"],
-            date_info=state_dict["date_info"],
-            query=state_dict["query"],
-            insights=state_dict["insights"],
-            visualization=state_dict["visualization"],
-            response=state_dict["response"],
-            error=state_dict["error"]
-        )
-        new_state.df = df  # Attach df as an attribute not part of the schema.
-        return new_state
+        # Update the state to include the DataFrame.
+        return state._replace(df=df)
 
     def state_generate_insights(self, state: AgentState) -> AgentState:
-        df = getattr(state, "df", None)
-        insights = self.insights_agent.generate(df)
+        insights = self.insights_agent.generate(state.df)
         return state._replace(insights=insights)
 
     def state_generate_visualization(self, state: AgentState) -> AgentState:
-        df = getattr(state, "df", None)
-        viz = self.dataviz_agent.plot(df, metadata=yaml.dump(self.metadata))
+        viz = self.dataviz_agent.plot(state.df, metadata=yaml.dump(self.metadata))
         return state._replace(visualization=viz)
 
     def state_compose_response(self, state: AgentState) -> AgentState:
