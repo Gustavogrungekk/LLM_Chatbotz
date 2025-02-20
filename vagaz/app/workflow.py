@@ -91,12 +91,14 @@ class QueryBuilder:
         self.llm = get_llm()
     
     def build(self, context, date_info):
+        # Convert the metadata dictionary to a formatted YAML string for better readability.
+        formatted_metadata = yaml.dump(self.metadata)
         template = PromptTemplate(
             template=self.prompt,
             input_variables=["context", "date_info", "metadata"]
         )
         chain = LLMChain(llm=self.llm, prompt=template)
-        return chain.run(context=context, date_info=date_info, metadata=self.metadata)
+        return chain.run(context=context, date_info=date_info, metadata=formatted_metadata)
 
 # InsightsAgent: Generates insights from the query results.
 class InsightsAgent:
@@ -292,7 +294,7 @@ class AdvancedAgent:
 
     def state_generate_visualization(self, state: AgentState) -> AgentState:
         df = getattr(state, "df", None)
-        viz = self.dataviz_agent.plot(df, metadata=str(self.metadata))
+        viz = self.dataviz_agent.plot(df, metadata=yaml.dump(self.metadata))
         return state._replace(visualization=viz)
 
     def state_compose_response(self, state: AgentState) -> AgentState:
@@ -320,7 +322,7 @@ class AdvancedAgent:
             response="",
             error=""
         )
-        # Instead of calling the compiled workflow, we iterate through the nodes in sequence.
+        # Instead of calling the compiled workflow, iterate through the steps in sequence.
         sequence = [
             "enrich_context",
             "validate_context",
