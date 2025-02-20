@@ -4,7 +4,7 @@ Dependencies and Recommended Versions:
 - awswrangler==2.19.0
 - pandas==1.5.0
 - langchain==0.0.148
-- langgraph==0.1.0  # (or the version that supports the StateGraph API below)
+- langgraph==0.1.0  # (or the version that supports the StateGraph API used below)
 - plotly==5.13.0     # if using Plotly for visualization
 """
 
@@ -192,7 +192,8 @@ class AdvancedAgent:
         fixed_date_value = self.prompts.get('fixed_date_value', None) if fixed_date_enabled else None
 
         self.context_enricher = ContextEnricher(self.prompts.get('context_enrichment'))
-        self.date_extractor = DateExtractor(self.prompts.get('date_extraction'), fixed_date_enabled, fixed_date_value)
+        self.date_extractor = DateExtractor(self.prompts.get('date_extraction'),
+                                            fixed_date_enabled, fixed_date_value)
         self.query_builder = QueryBuilder(self.prompts.get('query_builder'), self.metadata)
         self.insights_agent = InsightsAgent(self.prompts.get('insights'))
         self.dataviz_agent = DataVizAgent(self.prompts.get('dataviz'))
@@ -202,8 +203,7 @@ class AdvancedAgent:
         self.build_workflow()
 
     def build_workflow(self):
-        # Define a state schema as a NamedTuple type for hashability.
-        # All fields are strings.
+        # Build the state graph using the given nodes and edges.
         state_schema = AgentState
         sg = StateGraph(state_schema)
         sg.add_node("enrich_context", self.state_enrich_context)
@@ -272,7 +272,6 @@ class AdvancedAgent:
         # Since df is unhashable, we store it separately in state via a temporary key.
         state_dict = state._asdict()
         state_dict["df"] = df
-        # Convert back to AgentState ignoring 'df'
         new_state = AgentState(
             input=state_dict["input"],
             enriched_context=state_dict["enriched_context"],
@@ -283,8 +282,7 @@ class AdvancedAgent:
             response=state_dict["response"],
             error=state_dict["error"]
         )
-        # Attach df to the state object as an attribute (not part of the schema)
-        new_state.df = df  
+        new_state.df = df  # Attach df as an attribute not part of the schema.
         return new_state
 
     def state_generate_insights(self, state: AgentState) -> AgentState:
@@ -310,10 +308,9 @@ class AdvancedAgent:
         return state._replace(response=response)
 
     def run(self, input_data):
-        # Expect a dictionary with the key "context"
+        # Create the initial state from the provided context.
         context = input_data.get("context")
-        # Create the initial state as an AgentState NamedTuple.
-        initial_state = AgentState(
+        state = AgentState(
             input=context,
             enriched_context="",
             date_info="",
@@ -323,15 +320,22 @@ class AdvancedAgent:
             response="",
             error=""
         )
-        try:
-            # Execute the workflow by calling the compiled workflow with the initial state.
-            final_state = self.workflow(initial_state)
-        except Exception as e:
-            return {"error": str(e)}
-        
-        if final_state.error:
-            return {"error": final_state.error}
-        return final_state.response
+        # Instead of calling the compiled workflow, we iterate through the nodes in sequence.
+        sequence = [
+            "enrich_context",
+            "validate_context",
+            "extract_dates",
+            "build_query",
+            "execute_query",
+            "generate_insights",
+            "generate_visualization",
+            "compose_response"
+        ]
+        for step in sequence:
+            state = getattr(self, f"state_{step}")(state)
+            if state.error:
+                return {"error": state.error}
+        return state.response
 
 # Example execution of the advanced agent
 if __name__ == "__main__":
