@@ -1,0 +1,7 @@
+langchain
+awswrangler
+pandas
+PyYAML
+plotly
+matplotlib
+openai
