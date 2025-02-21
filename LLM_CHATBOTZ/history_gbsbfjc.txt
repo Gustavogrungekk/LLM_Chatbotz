@@ -1,0 +1,438 @@
+Pergunta: Qual foi o produto que mais teve vistos na MCE?
+
+Resposta: **Resposta do Agente:**
+
+📊 **Resultados da Análise**
+
+
+📈 **Visualização:**
+
+
+🔧 **Query Executada:**
+```sql
+content="```sql\nSELECT \n  CONCAT(year, month) AS anomes,\n  produto,\n  COUNT(DISTINCT CASE WHEN potencial = 1 THEN cnpj END) as potencial,\n  COUNT(DISTINCT CASE WHEN visto = 1 THEN cnpj END) as visto,\n  COUNT(DISTINCT CASE WHEN clique = 1 THEN cnpj END) as clique,\n  COUNT(DISTINCT CASE WHEN atuado = 1 THEN cnpj END) as atuado,\n  COUNT(DISTINCT CASE WHEN disponivel = 1 THEN cnpj END) as disponivel\nFROM gold\nWHERE year = '2025' and month = '01'\n  AND canal = 'CANAL_ESPECIFICO'\nGROUP BY produto\n```" additional_kwargs={'refusal': None} response_metadata={'token_usage': {'completion_tokens': 155, 'prompt_tokens': 1685, 'total_tokens': 1840, 'completion_tokens_details': {'accepted_prediction_tokens': 0, 'audio_tokens': 0, 'reasoning_tokens': 0, 'rejected_prediction_tokens': 0}, 'prompt_tokens_details': {'audio_tokens': 0, 'cached_tokens': 0}}, 'model_name': 'gpt-4-0125-preview', 'system_fingerprint': None, 'finish_reason': 'stop', 'logprobs': None} id='run-7095f10b-0cb4-4dfe-8909-0c785a5adf8d-0' usage_metadata={'input_tokens': 1685, 'output_tokens': 155, 'total_tokens': 1840, 'input_token_details': {'audio': 0, 'cache_read': 0}, 'output_token_details': {'audio': 0, 'reasoning': 0}}
+```
+Query: content="```sql\nSELECT \n  CONCAT(year, month) AS anomes,\n  produto,\n  COUNT(DISTINCT CASE WHEN potencial = 1 THEN cnpj END) as potencial,\n  COUNT(DISTINCT CASE WHEN visto = 1 THEN cnpj END) as visto,\n  COUNT(DISTINCT CASE WHEN clique = 1 THEN cnpj END) as clique,\n  COUNT(DISTINCT CASE WHEN atuado = 1 THEN cnpj END) as atuado,\n  COUNT(DISTINCT CASE WHEN disponivel = 1 THEN cnpj END) as disponivel\nFROM gold\nWHERE year = '2025' and month = '01'\n  AND canal = 'CANAL_ESPECIFICO'\nGROUP BY produto\n```" additional_kwargs={'refusal': None} response_metadata={'token_usage': {'completion_tokens': 155, 'prompt_tokens': 1685, 'total_tokens': 1840, 'completion_tokens_details': {'accepted_prediction_tokens': 0, 'audio_tokens': 0, 'reasoning_tokens': 0, 'rejected_prediction_tokens': 0}, 'prompt_tokens_details': {'audio_tokens': 0, 'cached_tokens': 0}}, 'model_name': 'gpt-4-0125-preview', 'system_fingerprint': None, 'finish_reason': 'stop', 'logprobs': None} id='run-7095f10b-0cb4-4dfe-8909-0c785a5adf8d-0' usage_metadata={'input_tokens': 1685, 'output_tokens': 155, 'total_tokens': 1840, 'input_token_details': {'audio': 0, 'cache_read': 0}, 'output_token_details': {'audio': 0, 'reasoning': 0}}
+
+Pergunta: Qual foi o canal com mais visto e clique em janeiro de 2025?
+
+Resposta: **Resposta do Agente:**
+
+📊 **Resultados da Análise**
+
+
+📈 **Visualização:**
+
+
+🔧 **Query Executada:**
+```sql
+content="```sql\nSELECT \n  CONCAT(year, month) AS anomes,\n  produto,\n  COUNT(DISTINCT CASE WHEN potencial = 1 THEN cnpj END) as potencial,\n  COUNT(DISTINCT CASE WHEN visto = 1 THEN cnpj END) as visto,\n  COUNT(DISTINCT CASE WHEN clique = 1 THEN cnpj END) as clique\nFROM gold\nWHERE year = '2025' AND month = '01'\nGROUP BY year, month, produto\n```" additional_kwargs={'refusal': None} response_metadata={'token_usage': {'completion_tokens': 103, 'prompt_tokens': 2019, 'total_tokens': 2122, 'completion_tokens_details': {'accepted_prediction_tokens': 0, 'audio_tokens': 0, 'reasoning_tokens': 0, 'rejected_prediction_tokens': 0}, 'prompt_tokens_details': {'audio_tokens': 0, 'cached_tokens': 0}}, 'model_name': 'gpt-4-0125-preview', 'system_fingerprint': None, 'finish_reason': 'stop', 'logprobs': None} id='run-23f35f55-95d2-44e9-aeae-954ae5d224e4-0' usage_metadata={'input_tokens': 2019, 'output_tokens': 103, 'total_tokens': 2122, 'input_token_details': {'audio': 0, 'cache_read': 0}, 'output_token_details': {'audio': 0, 'reasoning': 0}}
+```
+
+Pergunta: Qual o canal com mais visto?
+Resposta: **Resposta do Agente:**
+
+📊 **Resultados da Análise**
+
+
+📈 **Visualização:**
+
+
+🔧 **Query Executada:**
+```sql
+content="```sql\nSELECT \n  CONCAT(year, month) AS anomes,\n  produto,\n  COUNT(DISTINCT CASE WHEN potencial = 1 THEN cnpj END) as potencial,\n  COUNT(DISTINCT CASE WHEN visto = 1 THEN cnpj END) as visto,\n  COUNT(DISTINCT CASE WHEN clique = 1 THEN cnpj END) as clique,\n  COUNT(DISTINCT CASE WHEN atuado = 1 THEN cnpj END) as atuado\nFROM gold\nWHERE year = '2025' \n  AND month = '01' \n  AND canal = 'CANAL_ESPECIFICO'\nGROUP BY produto\n```" additional_kwargs={'refusal': None} response_metadata={'token_usage': {'completion_tokens': 137, 'prompt_tokens': 2021, 'total_tokens': 2158, 'completion_tokens_details': {'accepted_prediction_tokens': 0, 'audio_tokens': 0, 'reasoning_tokens': 0, 'rejected_prediction_tokens': 0}, 'prompt_tokens_details': {'audio_tokens': 0, 'cached_tokens': 0}}, 'model_name': 'gpt-4-0125-preview', 'system_fingerprint': None, 'finish_reason': 'stop', 'logprobs': None} id='run-0d65e327-59e2-4719-9248-c41ce440cb8f-0' usage_metadata={'input_tokens': 2021, 'output_tokens': 137, 'total_tokens': 2158, 'input_token_details': {'audio': 0, 'cache_read': 0}, 'output_token_details': {'audio': 0, 'reasoning': 0}}
+```
+
+Pergunta: Qual o canal com mais visto?
+Resposta: **Resposta do Agente:**
+
+📊 **Resultados da Análise**
+
+
+📈 **Visualização:**
+
+
+🔧 **Query Executada:**
+```sql
+content="```sql\nSELECT \n  CONCAT(year, month) AS anomes,\n  produto,\n  COUNT(DISTINCT CASE WHEN potencial = 1 THEN cnpj END) as potencial,\n  COUNT(DISTINCT CASE WHEN visto = 1 THEN cnpj END) as visto,\n  COUNT(DISTINCT CASE WHEN clique = 1 THEN cnpj END) as clique,\n  COUNT(DISTINCT CASE WHEN atuado = 1 THEN cnpj END) as atuado\nFROM gold\nWHERE year = '2025' and month = '01'\nGROUP BY year, month, produto\n```" additional_kwargs={'refusal': None} response_metadata={'token_usage': {'completion_tokens': 126, 'prompt_tokens': 1844, 'total_tokens': 1970, 'completion_tokens_details': {'accepted_prediction_tokens': 0, 'audio_tokens': 0, 'reasoning_tokens': 0, 'rejected_prediction_tokens': 0}, 'prompt_tokens_details': {'audio_tokens': 0, 'cached_tokens': 0}}, 'model_name': 'gpt-4-0125-preview', 'system_fingerprint': None, 'finish_reason': 'stop', 'logprobs': None} id='run-f19e2c54-c885-45b6-a47f-0d88fbc5bb96-0' usage_metadata={'input_tokens': 1844, 'output_tokens': 126, 'total_tokens': 1970, 'input_token_details': {'audio': 0, 'cache_read': 0}, 'output_token_details': {'audio': 0, 'reasoning': 0}}
+```
+
+Pergunta: Quais foram os produos com maior potencial visto e clique nos canais Email VAI e MCE?
+Resposta: **Resposta do Agente:**
+
+📊 **Resultados da Análise**
+
+
+📈 **Visualização:**
+
+
+🔧 **Query Executada:**
+```sql
+content="```sql\nSELECT \n  CONCAT(year, month) AS anomes,\n  produto,\n  SUM(potencial) AS potencial,\n  SUM(visto) AS visto,\n  SUM(clique) AS clique,\n  SUM(atuado) AS atuado,\n  SUM(disponivel) AS disponivel\nFROM gold\nWHERE year = '2025' \n  AND month = '01' \n  AND canal = 'VAI'\nGROUP BY produto, year, month\n```" additional_kwargs={'refusal': None} response_metadata={'token_usage': {'completion_tokens': 102, 'prompt_tokens': 2049, 'total_tokens': 2151, 'completion_tokens_details': {'accepted_prediction_tokens': 0, 'audio_tokens': 0, 'reasoning_tokens': 0, 'rejected_prediction_tokens': 0}, 'prompt_tokens_details': {'audio_tokens': 0, 'cached_tokens': 0}}, 'model_name': 'gpt-4-0125-preview', 'system_fingerprint': None, 'finish_reason': 'stop', 'logprobs': None} id='run-6d4a484f-f912-4325-afac-42b1d255489a-0' usage_metadata={'input_tokens': 2049, 'output_tokens': 102, 'total_tokens': 2151, 'input_token_details': {'audio': 0, 'cache_read': 0}, 'output_token_details': {'audio': 0, 'reasoning': 0}}
+```
+
+Pergunta: Quais foram os produos com maior potencial visto e clique nos canais Email VAI e MCE?
+Resposta: **Resposta do Agente:**
+
+📊 **Resultados da Análise**
+
+
+📈 **Visualização:**
+
+
+🔧 **Query Executada:**
+```sql
+content="```sql\nSELECT \n  CONCAT(year, month) AS anomes,\n  produto,\n  COUNT(DISTINCT CASE WHEN potencial = 1 THEN cnpj END) as potencial,\n  COUNT(DISTINCT CASE WHEN visto = 1 THEN cnpj END) as visto,\n  COUNT(DISTINCT CASE WHEN clique = 1 THEN cnpj END) as clique\nFROM gold\nWHERE year = '2025' \n  AND month = '01' \n  AND canal = 'VAI'\nGROUP BY year, month, produto\n```" additional_kwargs={'refusal': None} response_metadata={'token_usage': {'completion_tokens': 114, 'prompt_tokens': 2111, 'total_tokens': 2225, 'completion_tokens_details': {'accepted_prediction_tokens': 0, 'audio_tokens': 0, 'reasoning_tokens': 0, 'rejected_prediction_tokens': 0}, 'prompt_tokens_details': {'audio_tokens': 0, 'cached_tokens': 0}}, 'model_name': 'gpt-4-0125-preview', 'system_fingerprint': None, 'finish_reason': 'stop', 'logprobs': None} id='run-9d229173-03d7-4c7e-9248-d309f80a0b5d-0' usage_metadata={'input_tokens': 2111, 'output_tokens': 114, 'total_tokens': 2225, 'input_token_details': {'audio': 0, 'cache_read': 0}, 'output_token_details': {'audio': 0, 'reasoning': 0}}
+```
+
+Pergunta: Quais foram os produos com maior potencial visto e clique nos canais Email VAI e MCE?
+Resposta: **Resposta do Agente:**
+
+📊 **Resultados da Análise**
+
+
+📈 **Visualização:**
+
+
+🔧 **Query Executada:**
+```sql
+content="```sql\nSELECT \n  CONCAT(year, month) AS anomes,\n  produto,\n  SUM(potencial) AS total_potencial,\n  SUM(visto) AS total_visto,\n  SUM(clique) AS total_clique,\n  SUM(atuado) AS total_atuado,\n  SUM(disponivel) AS total_disponivel\nFROM gold\nWHERE year = '2025' \n  AND month = '01' \n  AND canal = 'CANAL_ESPECIFICADO'\nGROUP BY produto\n```" additional_kwargs={'refusal': None} response_metadata={'token_usage': {'completion_tokens': 110, 'prompt_tokens': 2082, 'total_tokens': 2192, 'completion_tokens_details': {'accepted_prediction_tokens': 0, 'audio_tokens': 0, 'reasoning_tokens': 0, 'rejected_prediction_tokens': 0}, 'prompt_tokens_details': {'audio_tokens': 0, 'cached_tokens': 0}}, 'model_name': 'gpt-4-0125-preview', 'system_fingerprint': None, 'finish_reason': 'stop', 'logprobs': None} id='run-86e92144-515b-413f-9200-301fc7053ffd-0' usage_metadata={'input_tokens': 2082, 'output_tokens': 110, 'total_tokens': 2192, 'input_token_details': {'audio': 0, 'cache_read': 0}, 'output_token_details': {'audio': 0, 'reasoning': 0}}
+```
+
+Pergunta: Quais foram os produos com maior potencial visto e clique nos canais Email VAI e MCE?
+Resposta: **Resposta do Agente:**
+
+📊 **Resultados da Análise**
+
+
+📈 **Visualização:**
+
+
+🔧 **Query Executada:**
+```sql
+content="```sql\nSELECT \n  CONCAT(year, month) AS anomes,\n  produto,\n  COUNT(DISTINCT CASE WHEN potencial = 1 THEN cnpj END) as potencial,\n  COUNT(DISTINCT CASE WHEN visto = 1 THEN cnpj END) as visto,\n  COUNT(DISTINCT CASE WHEN clique = 1 THEN cnpj END) as clique\nFROM gold\nWHERE year = '2025' \n  AND month = '01' \n  AND canal = 'VAI'\nGROUP BY year, month, produto\n```" additional_kwargs={'refusal': None} response_metadata={'token_usage': {'completion_tokens': 114, 'prompt_tokens': 2255, 'total_tokens': 2369, 'completion_tokens_details': {'accepted_prediction_tokens': 0, 'audio_tokens': 0, 'reasoning_tokens': 0, 'rejected_prediction_tokens': 0}, 'prompt_tokens_details': {'audio_tokens': 0, 'cached_tokens': 0}}, 'model_name': 'gpt-4-0125-preview', 'system_fingerprint': None, 'finish_reason': 'stop', 'logprobs': None} id='run-0d9a48c6-1a53-4164-8a15-b6154abb273c-0' usage_metadata={'input_tokens': 2255, 'output_tokens': 114, 'total_tokens': 2369, 'input_token_details': {'audio': 0, 'cache_read': 0}, 'output_token_details': {'audio': 0, 'reasoning': 0}}
+```
+
+Pergunta: Quais foram os produos com maior potencial visto e clique nos canais Email VAI e MCE?
+Resposta: **Resposta do Agente:**
+
+📊 **Resultados da Análise**
+
+
+📈 **Visualização:**
+
+
+🔧 **Query Executada:**
+```sql
+content="```sql\nSELECT \n  CONCAT(year, month) AS anomes,\n  produto,\n  COUNT(DISTINCT CASE WHEN potencial = 1 THEN cnpj END) as potencial,\n  COUNT(DISTINCT CASE WHEN visto = 1 THEN cnpj END) as visto,\n  COUNT(DISTINCT CASE WHEN clique = 1 THEN cnpj END) as clique,\n  COUNT(DISTINCT CASE WHEN atuado = 1 THEN cnpj END) as atuado\nFROM gold\nWHERE year = '2025' \n  AND month = '01' \n  AND canal = 'Email VAI'\nGROUP BY produto\n```" additional_kwargs={'refusal': None} response_metadata={'token_usage': {'completion_tokens': 134, 'prompt_tokens': 2031, 'total_tokens': 2165, 'completion_tokens_details': {'accepted_prediction_tokens': 0, 'audio_tokens': 0, 'reasoning_tokens': 0, 'rejected_prediction_tokens': 0}, 'prompt_tokens_details': {'audio_tokens': 0, 'cached_tokens': 0}}, 'model_name': 'gpt-4-0125-preview', 'system_fingerprint': None, 'finish_reason': 'stop', 'logprobs': None} id='run-9c9c0c49-2ccf-4e19-8f7e-5a848ecf711a-0' usage_metadata={'input_tokens': 2031, 'output_tokens': 134, 'total_tokens': 2165, 'input_token_details': {'audio': 0, 'cache_read': 0}, 'output_token_details': {'audio': 0, 'reasoning': 0}}
+```
+
+Pergunta: Quais foram os produos com maior potencial visto e clique nos canais Email VAI e MCE?
+Resposta: **Resposta do Agente:**
+
+📊 **Resultados da Análise**
+
+
+📈 **Visualização:**
+
+
+🔧 **Query Executada:**
+```sql
+content="```sql\nSELECT \n  CONCAT(year, month) AS anomes,\n  produto,\n  COUNT(DISTINCT CASE WHEN potencial = 1 THEN cnpj END) as potencial,\n  COUNT(DISTINCT CASE WHEN visto = 1 THEN cnpj END) as visto,\n  COUNT(DISTINCT CASE WHEN clique = 1 THEN cnpj END) as clique,\n  COUNT(DISTINCT CASE WHEN atuado = 1 THEN cnpj END) as atuado\nFROM gold\nWHERE year = '2025' \n  AND month = '01' \n  AND canal = 'Email VAI'\nGROUP BY year, month, produto\n```" additional_kwargs={'refusal': None} response_metadata={'token_usage': {'completion_tokens': 138, 'prompt_tokens': 2088, 'total_tokens': 2226, 'completion_tokens_details': {'accepted_prediction_tokens': 0, 'audio_tokens': 0, 'reasoning_tokens': 0, 'rejected_prediction_tokens': 0}, 'prompt_tokens_details': {'audio_tokens': 0, 'cached_tokens': 0}}, 'model_name': 'gpt-4-0125-preview', 'system_fingerprint': None, 'finish_reason': 'stop', 'logprobs': None} id='run-5ac81e47-a9ef-4945-9f12-e1d85ed3c658-0' usage_metadata={'input_tokens': 2088, 'output_tokens': 138, 'total_tokens': 2226, 'input_token_details': {'audio': 0, 'cache_read': 0}, 'output_token_details': {'audio': 0, 'reasoning': 0}}
+```
+
+Pergunta: Quais foram os produos com maior potencial visto e clique nos canais Email VAI e MCE?
+Resposta: **Resposta do Agente:**
+
+📊 **Resultados da Análise**
+
+
+📈 **Visualização:**
+
+
+🔧 **Query Executada:**
+```sql
+content="```sql\nSELECT \n  CONCAT(year, month) AS anomes,\n  produto,\n  COUNT(DISTINCT CASE WHEN potencial = 1 THEN cnpj END) as potencial,\n  COUNT(DISTINCT CASE WHEN visto = 1 THEN cnpj END) as visto,\n  COUNT(DISTINCT CASE WHEN clique = 1 THEN cnpj END) as clique,\n  COUNT(DISTINCT CASE WHEN atuado = 1 THEN cnpj END) as atuado,\n  COUNT(DISTINCT CASE WHEN disponivel = 1 THEN cnpj END) as disponivel\nFROM gold\nWHERE year = '2025' and month = '01'\nGROUP BY CONCAT(year, month), produto\n```" additional_kwargs={'refusal': None} response_metadata={'token_usage': {'completion_tokens': 148, 'prompt_tokens': 2134, 'total_tokens': 2282, 'completion_tokens_details': {'accepted_prediction_tokens': 0, 'audio_tokens': 0, 'reasoning_tokens': 0, 'rejected_prediction_tokens': 0}, 'prompt_tokens_details': {'audio_tokens': 0, 'cached_tokens': 0}}, 'model_name': 'gpt-4-0125-preview', 'system_fingerprint': None, 'finish_reason': 'stop', 'logprobs': None} id='run-63ac5328-f57d-4c20-a9ea-b04086c47f95-0' usage_metadata={'input_tokens': 2134, 'output_tokens': 148, 'total_tokens': 2282, 'input_token_details': {'audio': 0, 'cache_read': 0}, 'output_token_details': {'audio': 0, 'reasoning': 0}}
+```
+
+Pergunta: Quais foram os produos com maior potencial visto e clique nos canais Email VAI e MCE?
+Resposta: **Resposta do Agente:**
+
+📊 **Resultados da Análise**
+
+
+📈 **Visualização:**
+
+
+🔧 **Query Executada:**
+```sql
+content="```sql\nSELECT \n  CONCAT(year, month) AS anomes,\n  produto,\n  COUNT(DISTINCT CASE WHEN potencial = 1 THEN cnpj END) as potencial,\n  COUNT(DISTINCT CASE WHEN visto = 1 THEN cnpj END) as visto,\n  COUNT(DISTINCT CASE WHEN clique = 1 THEN cnpj END) as clique,\n  COUNT(DISTINCT CASE WHEN atuado = 1 THEN cnpj END) as atuado,\n  COUNT(DISTINCT CASE WHEN disponivel = 1 THEN cnpj END) as disponivel\nFROM gold\nWHERE year = '2025' and month = '01'\nGROUP BY year, month, produto\n```" additional_kwargs={'refusal': None} response_metadata={'token_usage': {'completion_tokens': 147, 'prompt_tokens': 2125, 'total_tokens': 2272, 'completion_tokens_details': {'accepted_prediction_tokens': 0, 'audio_tokens': 0, 'reasoning_tokens': 0, 'rejected_prediction_tokens': 0}, 'prompt_tokens_details': {'audio_tokens': 0, 'cached_tokens': 0}}, 'model_name': 'gpt-4-0125-preview', 'system_fingerprint': None, 'finish_reason': 'stop', 'logprobs': None} id='run-33902176-e277-4ddc-b9ab-80746697a04e-0' usage_metadata={'input_tokens': 2125, 'output_tokens': 147, 'total_tokens': 2272, 'input_token_details': {'audio': 0, 'cache_read': 0}, 'output_token_details': {'audio': 0, 'reasoning': 0}}
+```
+
+Pergunta: Quais foram os produos com maior potencial visto e clique nos canais Email VAI e MCE?
+Resposta: **Resposta do Agente:**
+
+📊 **Resultados da Análise**
+
+
+📈 **Visualização:**
+
+
+🔧 **Query Executada:**
+```sql
+content="```sql\nSELECT \n  CONCAT(year, month) AS anomes,\n  produto,\n  COUNT(DISTINCT CASE WHEN potencial = 1 THEN cnpj END) as potencial,\n  COUNT(DISTINCT CASE WHEN visto = 1 THEN cnpj END) as visto,\n  COUNT(DISTINCT CASE WHEN clique = 1 THEN cnpj END) as clique,\n  COUNT(DISTINCT CASE WHEN atuado = 1 THEN cnpj END) as atuado,\n  COUNT(DISTINCT CASE WHEN disponivel = 1 THEN cnpj END) as disponivel\nFROM gold\nWHERE year = '2025' and month = '01' and canal = 'VAI'\nGROUP BY produto\n```" additional_kwargs={'refusal': None} response_metadata={'token_usage': {'completion_tokens': 150, 'prompt_tokens': 2116, 'total_tokens': 2266, 'completion_tokens_details': {'accepted_prediction_tokens': 0, 'audio_tokens': 0, 'reasoning_tokens': 0, 'rejected_prediction_tokens': 0}, 'prompt_tokens_details': {'audio_tokens': 0, 'cached_tokens': 0}}, 'model_name': 'gpt-4-0125-preview', 'system_fingerprint': None, 'finish_reason': 'stop', 'logprobs': None} id='run-a2a1ba96-b84c-4fce-9cc8-17d8c51e6907-0' usage_metadata={'input_tokens': 2116, 'output_tokens': 150, 'total_tokens': 2266, 'input_token_details': {'audio': 0, 'cache_read': 0}, 'output_token_details': {'audio': 0, 'reasoning': 0}}
+```
+
+Pergunta: Quais foram os produos com maior potencial visto e clique nos canais Email VAI e MCE?
+Resposta: **Resposta do Agente:**
+
+📊 **Resultados da Análise**
+
+
+📈 **Visualização:**
+
+
+🔧 **Query Executada:**
+```sql
+content="```sql\nSELECT \n  CONCAT(year, month) AS anomes,\n  produto,\n  COUNT(DISTINCT CASE WHEN potencial = 1 THEN cnpj END) as potencial,\n  COUNT(DISTINCT CASE WHEN visto = 1 THEN cnpj END) as visto,\n  COUNT(DISTINCT CASE WHEN clique = 1 THEN cnpj END) as clique,\n  COUNT(DISTINCT CASE WHEN atuado = 1 THEN cnpj END) as atuado\nFROM gold\nWHERE year = '2025' \n  AND month = '01' \n  AND canal = 'VAI'\nGROUP BY year, month, produto\n```" additional_kwargs={'refusal': None} response_metadata={'token_usage': {'completion_tokens': 137, 'prompt_tokens': 2071, 'total_tokens': 2208, 'completion_tokens_details': {'accepted_prediction_tokens': 0, 'audio_tokens': 0, 'reasoning_tokens': 0, 'rejected_prediction_tokens': 0}, 'prompt_tokens_details': {'audio_tokens': 0, 'cached_tokens': 0}}, 'model_name': 'gpt-4-0125-preview', 'system_fingerprint': None, 'finish_reason': 'stop', 'logprobs': None} id='run-c143ee44-9cca-43a6-8f46-ab61b778f525-0' usage_metadata={'input_tokens': 2071, 'output_tokens': 137, 'total_tokens': 2208, 'input_token_details': {'audio': 0, 'cache_read': 0}, 'output_token_details': {'audio': 0, 'reasoning': 0}}
+```
+
+Pergunta: Quais foram os produos com maior potencial visto e clique nos canais Email VAI e MCE?
+Resposta: **Resposta do Agente:**
+
+📊 **Resultados da Análise**
+
+
+📈 **Visualização:**
+
+
+🔧 **Query Executada:**
+```sql
+content="```sql\nSELECT \n  CONCAT(year, month) AS anomes,\n  produto,\n  COUNT(DISTINCT CASE WHEN potencial = 1 THEN cnpj END) as potencial,\n  COUNT(DISTINCT CASE WHEN visto = 1 THEN cnpj END) as visto,\n  COUNT(DISTINCT CASE WHEN clique = 1 THEN cnpj END) as clique,\n  COUNT(DISTINCT CASE WHEN atuado = 1 THEN cnpj END) as atuado,\n  COUNT(DISTINCT CASE WHEN disponivel = 1 THEN cnpj END) as disponivel\nFROM gold\nWHERE year = '2025' and month = '01'\nGROUP BY year, month, produto\n```" additional_kwargs={'refusal': None} response_metadata={'token_usage': {'completion_tokens': 147, 'prompt_tokens': 2047, 'total_tokens': 2194, 'completion_tokens_details': {'accepted_prediction_tokens': 0, 'audio_tokens': 0, 'reasoning_tokens': 0, 'rejected_prediction_tokens': 0}, 'prompt_tokens_details': {'audio_tokens': 0, 'cached_tokens': 0}}, 'model_name': 'gpt-4-0125-preview', 'system_fingerprint': None, 'finish_reason': 'stop', 'logprobs': None} id='run-d5535f0a-03e4-4ec8-a55c-c3b590a769f7-0' usage_metadata={'input_tokens': 2047, 'output_tokens': 147, 'total_tokens': 2194, 'input_token_details': {'audio': 0, 'cache_read': 0}, 'output_token_details': {'audio': 0, 'reasoning': 0}}
+```
+
+Pergunta: Quais foram os produos com maior potencial visto e clique nos canais Email VAI e MCE?
+Resposta: **Resposta do Agente:**
+
+📊 **Resultados da Análise**
+
+
+📈 **Visualização:**
+
+
+🔧 **Query Executada:**
+```sql
+content="```sql\nSELECT \n  CONCAT(year, month) AS anomes,\n  produto,\n  COUNT(DISTINCT CASE WHEN potencial = 1 THEN cnpj END) as potencial,\n  COUNT(DISTINCT CASE WHEN visto = 1 THEN cnpj END) as visto,\n  COUNT(DISTINCT CASE WHEN clique = 1 THEN cnpj END) as clique,\n  COUNT(DISTINCT CASE WHEN atuado = 1 THEN cnpj END) as atuado,\n  COUNT(DISTINCT CASE WHEN disponivel = 1 THEN cnpj END) as disponivel\nFROM gold\nWHERE year = '2025' and month = '01'\nGROUP BY CONCAT(year, month), produto\n```" additional_kwargs={'refusal': None} response_metadata={'token_usage': {'completion_tokens': 148, 'prompt_tokens': 2117, 'total_tokens': 2265, 'completion_tokens_details': {'accepted_prediction_tokens': 0, 'audio_tokens': 0, 'reasoning_tokens': 0, 'rejected_prediction_tokens': 0}, 'prompt_tokens_details': {'audio_tokens': 0, 'cached_tokens': 0}}, 'model_name': 'gpt-4-0125-preview', 'system_fingerprint': None, 'finish_reason': 'stop', 'logprobs': None} id='run-40294e5a-e525-4c85-8711-535b96bb8a32-0' usage_metadata={'input_tokens': 2117, 'output_tokens': 148, 'total_tokens': 2265, 'input_token_details': {'audio': 0, 'cache_read': 0}, 'output_token_details': {'audio': 0, 'reasoning': 0}}
+```
+
+Pergunta: Quais foram os produos com maior potencial visto e clique nos canais Email VAI e MCE?
+Resposta: **Resposta do Agente:**
+
+📊 **Resultados da Análise**
+
+
+📈 **Visualização:**
+
+
+
+
+Pergunta: Quais foram os produos com maior potencial visto e clique nos canais Email VAI e MCE?
+Resposta: **Resposta do Agente:**
+
+📊 **Resultados da Análise**
+
+
+📈 **Visualização:**
+
+
+
+
+Pergunta: Quais foram os produos com maior potencial visto e clique nos canais Email VAI e MCE?
+Resposta: **Resposta do Agente:**
+
+📊 **Resultados da Análise**
+
+
+📈 **Visualização:**
+
+
+
+
+Pergunta: Quais foram os produos com maior potencial visto e clique nos canais Email VAI e MCE?
+Resposta: **Resposta do Agente:**
+
+📊 **Resultados da Análise**
+
+
+📈 **Visualização:**
+
+
+
+
+Pergunta: Quais foram os produos com maior potencial visto e clique nos canais Email VAI e MCE em ajeinro??
+Resposta: **Resposta do Agente:**
+
+📊 **Resultados da Análise**
+
+
+📈 **Visualização:**
+
+
+
+
+Pergunta: Quais foram os produos com maior potencial visto e clique nos canais Email VAI e MCE?
+Resposta: **Resposta do Agente:**
+
+📊 **Resultados da Análise**
+
+
+📈 **Visualização:**
+
+
+
+
+Pergunta: Quais foram os produos com maior potencial visto e clique nos canais Email VAI e MCE?
+Resposta: **Resposta do Agente:**
+
+📊 **Resultados da Análise**
+
+
+📈 **Visualização:**
+
+
+
+
+Pergunta: Quais foram os produos com maior potencial no canal REDE?
+Resposta: **Resposta do Agente:**
+
+📊 **Resultados da Análise**
+
+
+📈 **Visualização:**
+
+
+
+
+Pergunta: Quais foram os produos com maior potencial visto e clique nos canais Email em janeiro?
+Resposta: **Resposta do Agente:**
+
+📊 **Resultados da Análise**
+
+
+📈 **Visualização:**
+
+
+
+
+Pergunta: Quais foram os produos com maior potencial visto e clique nos canais Email em janeiro?
+Resposta: **Resposta do Agente:**
+
+📊 **Resultados da Análise**
+
+
+📈 **Visualização:**
+
+
+
+
+Pergunta: Quais foram os produos com maior potencial visto e clique nos canais Email em janeiro?
+Resposta: **Resposta do Agente:**
+
+📊 **Resultados da Análise**
+
+
+📈 **Visualização:**
+
+
+
+
+Pergunta: Quais foram os produos com maior potencial visto e clique nos canais Email VAI e MCE?
+Resposta: **Resposta do Agente:**
+
+📊 **Resultados da Análise**
+
+
+📈 **Visualização:**
+
+
+
+
+Pergunta: Quais foram os produos com maior potencial visto e clique nos canais Email VAI e MCE janiero?
+Resposta: **Resposta do Agente:**
+
+📊 **Resultados da Análise**
+
+
+📈 **Visualização:**
+
+
+
+
+Pergunta: Quais foram os produos com maior potencial visto e clique nos canais Email VAI e MCE?
+Resposta: **Resposta do Agente:**
+
+📊 **Resultados da Análise**
+
+
+📈 **Visualização:**
+
+
+
+
+Pergunta: Quais foram os produos com maior potencial visto e clique nos canais Email VAI e MCE?
+Resposta: **Resposta do Agente:**
+
+📊 **Resultados da Análise**
+
+
+📈 **Visualização:**
+
+
+
+
+Pergunta: Quais foram os produos com maior potencial visto e clique nos canais Email VAI e MCE?
+Resposta: **Resposta do Agente:**
+
+📊 **Resultados da Análise**
+
+
+📈 **Visualização:**
+
+
+
+
+Pergunta: Quais foram os produos com maior potencial visto e clique nos canais Email VAI e MCE?
+Resposta: **Resposta do Agente:**
+
+📊 **Resultados da Análise**
+
+
+📈 **Visualização:**
+
+
+
+
+Pergunta: Quais foram os produos com maior potencial visto e clique nos canais Email VAI e MCE?
+Resposta: **Resposta do Agente:**
+
+📊 **Resultados da Análise**
+
+
+📈 **Visualização:**
+
+Pergunta: Quais foram os produos com maior potencial visto e clique nos canais Email VAI e MCE?
+Resposta: **Resposta do Agente:**
+
+📊 **Resultados da Análise**
+
+
+📈 **Visualização:**
+
+Pergunta: Quais foram os produos com maior potencial visto e clique nos canais Email VAI e MCE?
+Resposta: **Resposta do Agente:**
+
+📊 **Resultados da Análise**
+
+
+📈 **Visualização:**
+

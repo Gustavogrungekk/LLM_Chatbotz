@@ -1,0 +1,10 @@
+default: "bar"
+available_plots:
+  bar:
+    description: "Gráfico de barras - ideal para comparar categorias."
+  line:
+    description: "Gráfico de linha - útil para mostrar tendências ao longo do tempo."
+  scatter:
+    description: "Gráfico de dispersão - bom para visualizar correlações entre duas variáveis."
+  pie:
+    description: "Gráfico de pizza - adequado para mostrar proporções."

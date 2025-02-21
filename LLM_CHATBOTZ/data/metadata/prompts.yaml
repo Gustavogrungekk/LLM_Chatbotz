@@ -1,0 +1,29 @@
+test_mode: true
+fixed_date_enabled: true
+fixed_date_value: "year: '2025', month: '01'"
+
+context_enrichment: "Por favor, enriqueça o contexto para auxiliar na extração de informações: {context}"
+
+date_extraction: "Extraia as informações de data do seguinte contexto. Retorne os dados no formato: year: 'YYYY', month: 'MM'. Contexto: {context}"
+
+query_builder: |
+  Com base no contexto enriquecido:
+  {context}
+  
+  Informações temporais:
+  {date_info}
+  
+  Metadados:
+  {metadata}
+  
+  Utilizando os metadados fornecidos, construa e retorne SOMENTE a query SQL para AWS Athena que:
+  - Utilize a tabela "gold" e os filtros de partição conforme definido (year, month e canal).
+  - Retorne apenas os campos relevantes estipulados pelo usuario, como "produto" e as métricas necessárias (por exemplo, potencial, visto, clique, etc.).
+  - Adicione sempre no inicio uma coluna calculada "anomes" que concatene o valor de "year" e "month" (por exemplo, CONCAT(year, month) AS anomes).
+  - Somentente retorne o que foi solicitado, sem adicionar campos ou métricas extras a nao ser que seja explicitamente solicitado.
+  Retorne somente o código SQL.
+
+
+insights: "Analise os seguintes dados (em CSV) e gere insights de negócio relevantes: {data}"
+
+dataviz: "Crie uma visualização interativa para os dados fornecidos."

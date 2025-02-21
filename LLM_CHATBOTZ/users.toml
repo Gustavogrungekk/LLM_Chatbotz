@@ -1,0 +1,19 @@
+# Exemplo de arquivo users.toml
+# Cada seção representa um usuário identificado pelo seu RACF.
+#
+# Campos:
+# - motivo: Motivo do acesso ao sistema.
+# - departamento: Departamento do usuário.
+# - funcional: Identificador funcional (armazenado para referência, não utilizado para login).
+# - status: Estado do usuário.
+#     active   -> Usuário aprovado e com acesso liberado.
+#     pending  -> Cadastro recebido, aguardando aprovação.
+#     inactive -> Conta desativada ou suspensa.
+# - password: Senha de acesso (em produção, recomenda-se armazenar o hash da senha).
+
+[gbsbfjc]
+motivo = "Consultas pessoais"
+departamento = "CRM"
+funcional = "12345"
+status = "active"
+password = "123"
