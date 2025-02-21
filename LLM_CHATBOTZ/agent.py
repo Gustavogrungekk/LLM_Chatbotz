@@ -12,7 +12,7 @@ from langgraph.graph import StateGraph, START, END  # Certifique-se de que esse 
 from typing import TypedDict
 
 #==== DELL: Carregar a chave da OpenAI
-with open(r'C:\Users\mygam\OneDrive\Área de Trabalho\Scripts\solo-projects\mrbot\config\open_ia_key.yaml') as f:
+with open(r'open_ia_key.yaml') as f:
     config = yaml.load(f, Loader=yaml.FullLoader)
     api_key = config['key']
 
