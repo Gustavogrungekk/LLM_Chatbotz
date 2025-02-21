@@ -11,7 +11,7 @@ from langchain.prompts import PromptTemplate
 from langgraph.graph import StateGraph, START, END  # Certifique-se de que esse módulo esteja instalado e configurado
 from typing import TypedDict
 
-#==== DELL: Carregar a chave da OpenAI
+# ==== DELL: Carregar a chave da OpenAI
 with open(r'open_ia_key.yaml') as f:
     config = yaml.load(f, Loader=yaml.FullLoader)
     api_key = config['key']
@@ -31,6 +31,7 @@ def get_llm():
 # Instancia o modelo uma única vez
 global_llm = get_llm()
 
+# --- Agente de curiosidades aleatórias ---
 class RandomCuriosityAgent:
     def __init__(self):
         with open('config/curiosidades.yaml', "r", encoding="utf-8") as f:
@@ -43,7 +44,7 @@ class RandomCuriosityAgent:
         curiosidade = random.choice(self.curiosidades)
         return f"{curiosidade.get('titulo', '')}: {curiosidade.get('descricao', '')}"
 
-# --- Sub-agents ---
+# --- Sub-agent: CuriosityAgent ---
 class CuriosityAgent:
     def __init__(self, llm, topic="Banco Itaú", prompt_template=None):
         self.topic = topic
@@ -61,6 +62,7 @@ class CuriosityAgent:
         result = (template | self.llm).invoke({"topic": self.topic})
         return result
 
+# --- Sub-agent: ContextEnricher ---
 class ContextEnricher:
     def __init__(self, llm, prompt: str):
         self.prompt = prompt
@@ -71,6 +73,7 @@ class ContextEnricher:
         result = (template | self.llm).invoke({"context": context})
         return result
 
+# --- Sub-agent: DateExtractor ---
 class DateExtractor:
     def __init__(self, llm, prompt: str, fixed_date_enabled: bool = False, fixed_date_value: str = None):
         self.prompt = prompt
@@ -85,6 +88,7 @@ class DateExtractor:
         result = (template | self.llm).invoke({"context": context})
         return result
 
+# --- Sub-agent: QueryBuilder ---
 class QueryBuilder:
     def __init__(self, llm, prompt: str, metadata: dict):
         self.prompt = prompt
@@ -103,6 +107,7 @@ class QueryBuilder:
         })
         return result
 
+# --- Sub-agent: InsightsAgent ---
 class InsightsAgent:
     def __init__(self, llm, prompt: str):
         self.prompt = prompt
@@ -114,6 +119,7 @@ class InsightsAgent:
         result = (template | self.llm).invoke({"data": data_str})
         return result
 
+# --- Sub-agent: DataVizAgent ---
 class DataVizAgent:
     def __init__(self, llm, prompt: str, config_path: str = "config/dataviz_config.yaml"):
         self.prompt = prompt
@@ -181,7 +187,7 @@ class DataVizAgent:
                 ax.set_title("Visualização do Potencial")
             return "Visualização gerada com matplotlib."
 
-# --- AdvancedAgent usando um schema TypedDict (sem histórico) ---
+# --- Schema do estado do agente ---
 class AgentState(TypedDict):
     input: str
     enriched_context: str
@@ -192,6 +198,7 @@ class AgentState(TypedDict):
     response: str
     error: str
 
+# --- AdvancedAgent com memória dinâmica utilizando o LLM ---
 class AdvancedAgent:
     def __init__(self):
         with open('data/metadata/metadata.yaml', 'r', encoding='utf-8') as meta_file:
@@ -314,33 +321,81 @@ class AdvancedAgent:
             return {**state, "error": "Ocorreu um erro ao gerar a visualização. Já notificamos nosso time. Por favor, tente novamente."}
         return {**state, "visualization": viz}
 
-    # Função atualizada: retorna somente a resposta final gerada (campo 'insights')
     def state_compose_response(self, state: AgentState) -> dict:
         response = state.get('insights', 'Nenhuma resposta gerada.')
         return {**state, "response": response}
 
-    def run(self, input_data: dict) -> dict:
-        new_input = "Pergunta: " + input_data.get("context", "")
-        initial_state: AgentState = {
-            "input": new_input,
-            "enriched_context": "",
-            "date_info": "",
-            "query": "",
-            "insights": "",
-            "visualization": "",
-            "response": "",
-            "error": ""
-        }
-        final_state = self.workflow.invoke(initial_state)
-        return {
-            "response": final_state.get("response", "Nenhuma resposta gerada."),
-            "query": final_state.get("query", ""),
-            "insights": final_state.get("insights", ""),
-            "graph": final_state.get("visualization", "")
-        }
+    # --- Função para detectar, via LLM, se o usuário se refere à consulta anterior ---
+    def detecta_referencia_previa(self, query: str, memory: list) -> bool:
+        prompt = (
+            "Você é um assistente de negócios que auxilia na análise de dados. "
+            "Considere o seguinte histórico de conversas:\n\n"
+            f"{memory}\n\n"
+            "E a nova mensagem do usuário:\n\n"
+            f"{query}\n\n"
+            "O usuário está se referindo a dados previamente consultados (ou seja, quer reutilizar a consulta anterior)? "
+            "Responda apenas 'Sim' ou 'Não'."
+        )
+        resposta = self.llm(prompt)
+        return resposta.strip().lower() == "sim"
 
-# Exemplo de execução:
+    # --- Método interativo run ---
+    def run(self, context, verbose: bool = True):
+        print('Streamlit session state:')
+        print(context)
+
+        query = context['messages'][-1]['content'].strip()
+        memory = context['memory'][:-1]
+
+        # Utiliza o LLM para detectar se o usuário deseja referenciar a consulta anterior
+        referencia_previa = self.detecta_referencia_previa(query, memory)
+
+        if referencia_previa:
+            if hasattr(self, 'last_state') and self.last_state.get("df") is not None:
+                result = self.last_state
+                if verbose:
+                    print("O LLM detectou que o usuário se refere à consulta anterior. Reutilizando os dados já obtidos...")
+            else:
+                return "Não há dados anteriores para referenciar. Por favor, realize uma nova consulta."
+        else:
+            # Inicializa o estado com os valores padrão
+            state = {
+                "input": query,
+                "enriched_context": "",
+                "date_info": "",
+                "query": "",
+                "insights": "",
+                "visualization": "",
+                "response": "",
+                "error": ""
+            }
+            # Executa o workflow compilado com o estado inicial
+            result = self.workflow(state)
+            # Armazena o estado resultante para futuras referências
+            self.last_state = result
+
+        if verbose:
+            print("Resultado final do workflow:")
+            print(result)
+
+        if result.get("error"):
+            return result["error"]
+        else:
+            return result["response"]
+
+# Exemplo de uso:
 if __name__ == "__main__":
+    # Suponha que context seja um dicionário contendo 'messages' e 'memory'
+    context = {
+        "messages": [
+            {"role": "system", "content": "Bem-vindo ao assistente de negócios."},
+            {"role": "user", "content": "Mostre os dados de vendas do último trimestre."}
+        ],
+        "memory": [
+            {"role": "system", "content": "Bem-vindo ao assistente de negócios."}
+        ]
+    }
     agent = AdvancedAgent()
-    result = agent.run({"context": "Quais foram os produos com maior potencial visto e clique nos canais Email VAI e MCE?"})
-    print(result)
+    resposta = agent.run(context)
+    print("Resposta do Bot:")
+    print(resposta)
