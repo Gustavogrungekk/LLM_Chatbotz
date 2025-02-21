@@ -328,17 +328,22 @@ class AdvancedAgent:
     # --- Função para detectar, via LLM, se o usuário se refere à consulta anterior ---
     def detecta_referencia_previa(self, query: str, memory: list) -> bool:
         prompt = (
-            "Você é um assistente de negócios que auxilia na análise de dados. "
-            "Considere o seguinte histórico de conversas:\n\n"
+            "Você é um assistente de negócios focado em análise de dados. Abaixo está um histórico resumido da conversa e a nova pergunta do usuário.\n\n"
+            "Histórico:\n"
             f"{memory}\n\n"
-            "E a nova mensagem do usuário:\n\n"
+            "Nova pergunta:\n"
             f"{query}\n\n"
-            "O usuário está se referindo a dados previamente consultados (ou seja, quer reutilizar a consulta anterior)? "
-            "Responda apenas 'Sim' ou 'Não'."
+            "Por favor, responda somente com 'Sim' se a nova pergunta se refere a utilizar os dados da consulta anterior, ou 'Não' se ela requer uma nova consulta. Responda apenas uma dessas palavras."
         )
         resposta = self.llm(prompt)
-        return resposta.strip().lower() == "sim"
-
+        # Acessa o atributo 'content' do objeto retornado
+        resposta_texto = resposta.content if hasattr(resposta, "content") else str(resposta)
+        resposta_formatada = resposta_texto.strip().lower()
+        if resposta_formatada not in ["sim", "não"]:
+            # Se a resposta não estiver clara, podemos tratar de forma padrão
+            return False
+        return resposta_formatada == "sim"
+        
     # --- Método interativo run ---
     def run(self, context, verbose: bool = True):
         print('Streamlit session state:')
