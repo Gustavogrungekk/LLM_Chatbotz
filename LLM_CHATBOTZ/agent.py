@@ -308,17 +308,21 @@ class AdvancedAgent:
             return {**state, "error": "Não foi possível executar a query. Já notificamos nosso time. Por favor, tente novamente."}
         try:
             insights = self.insights_agent.generate(df)
+            print("Insights gerados:", insights)  # Debug: print insights
         except Exception as e:
+            print("Erro ao gerar insights:", e)
             return {**state, "error": "Ocorreu um erro ao gerar os insights. Já notificamos nosso time. Por favor, tente novamente."}
         return {**state, "insights": insights}
-
+    
     def state_generate_visualization(self, state: AgentState) -> dict:
         df = state.get("df")
         if df is None:
             return {**state, "error": "A consulta não retornou dados para visualização. Já notificamos nosso time. Por favor, tente novamente."}
         try:
             viz = self.dataviz_agent.plot(df, metadata=str(self.metadata))
+            print("Visualização gerada:", viz)  # Debug: print visualização
         except Exception as e:
+            print("Erro ao gerar visualização:", e)
             return {**state, "error": "Ocorreu um erro ao gerar a visualização. Já notificamos nosso time. Por favor, tente novamente."}
         return {**state, "visualization": viz}
 
