@@ -306,9 +306,10 @@ class AdvancedAgent:
         df = state.get("df")
         if df is None:
             return {**state, "error": "Não foi possível executar a query. Já notificamos nosso time. Por favor, tente novamente."}
+        print("DataFrame para insights:", df.head())  # Debug: imprime as primeiras linhas do dataframe
         try:
             insights = self.insights_agent.generate(df)
-            print("Insights gerados:", insights)  # Debug: print insights
+            print("Insights gerados:", insights)  # Debug: imprime os insights retornados
         except Exception as e:
             print("Erro ao gerar insights:", e)
             return {**state, "error": "Ocorreu um erro ao gerar os insights. Já notificamos nosso time. Por favor, tente novamente."}
@@ -318,13 +319,15 @@ class AdvancedAgent:
         df = state.get("df")
         if df is None:
             return {**state, "error": "A consulta não retornou dados para visualização. Já notificamos nosso time. Por favor, tente novamente."}
+        print("DataFrame para visualização:", df.head())  # Debug: imprime as primeiras linhas do dataframe
         try:
             viz = self.dataviz_agent.plot(df, metadata=str(self.metadata))
-            print("Visualização gerada:", viz)  # Debug: print visualização
+            print("Visualização gerada:", viz)  # Debug: imprime a saída da visualização
         except Exception as e:
             print("Erro ao gerar visualização:", e)
             return {**state, "error": "Ocorreu um erro ao gerar a visualização. Já notificamos nosso time. Por favor, tente novamente."}
         return {**state, "visualization": viz}
+
 
     # Função atualizada: retorna somente a resposta final gerada (campo 'insights')
     def state_compose_response(self, state: AgentState) -> dict:
