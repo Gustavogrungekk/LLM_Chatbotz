@@ -304,5 +304,5 @@ class AdvancedAgent:
 # Example execution of the advanced agent.
 if __name__ == "__main__":
     agent = AdvancedAgent()
-    result = agent.run({"context": "Quais foram os produtos que mais tiveram visto e clique nos canais VAI e MCE?"})
+    result = agent.run({"context": "Quais foram os produtos que mais tiveram visto e clique nos canais FOLHA e TREVOS?"})
     print(result)
