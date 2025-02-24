@@ -1,76 +1,50 @@
-def run(self, context, verbose: bool = True):
-    print("Streamlit session state:")
-    print(context)
-    print(type(context))
+def build_workflow(self):
+    # Create the state graph
+    workflow = StateGraph(AgentState)
 
-    # Ensure 'messages' exists and is not empty
-    if "messages" not in context or not context["messages"]:
-        print("Error: 'messages' key is missing or empty in context.")
-        return "Error: No messages found in context.", "", ""
+    # Add nodes
+    workflow.add_node("query_generation", self.call_query_generator)
+    workflow.add_node("date_extraction", self.call_date_extractor)
+    workflow.add_node("mr_camp_enrich_agent", self.call_model_mr_camp_enrich)
+    workflow.add_node("mr_camp_agent", self.call_model_mr_camp)
+    workflow.add_node("mr_camp_action", self.call_tool)
+    workflow.add_node("sugest_pergunta", self.call_sugest_pergunta)
+    workflow.add_node("add_count", self.add_count)
+    workflow.add_node("resposta", self.call_resposta)
 
-    # Ensure last message has 'content'
-    last_message = context["messages"][-1]
-    if "content" not in last_message:
-        print("Error: Last message has no 'content' key.")
-        return "Error: Last message is missing content.", "", ""
+    # Explicitly define END as a terminal state
+    workflow.add_node("END", lambda state: {**state})  # ✅ Ensure END receives the full state
 
-    query = last_message["content"]
-    memory = context["messages"][:-1]
+    # Ensure `question` is always passed
+    workflow.set_entry_point("query_generation")
 
-    inputs = {
-        "messages": [HumanMessage(content=query)],
-        "actions": ["<BEGIN>"],
-        "question": query,  # Ensuring 'question' is present
-        "memory": memory,
-        "attempts_count": 0
-    }
+    # ✅ Modify edges to always propagate `question`
+    workflow.add_edge("query_generation", lambda state: {**state, "question": state.get("question", "Pergunta não encontrada")}, "date_extraction")
+    workflow.add_edge("date_extraction", lambda state: {**state, "question": state["question"]}, "mr_camp_enrich_agent")
+    workflow.add_edge("mr_camp_enrich_agent", lambda state: {**state, "question": state["question"]}, "mr_camp_agent")
+    workflow.add_edge("mr_camp_agent", lambda state: {**state, "question": state["question"]}, "add_count")
+    workflow.add_edge("add_count", lambda state: {**state, "question": state["question"]}, "mr_camp_action")
 
-    try:
-        current_action = []
-        inter_list = []
+    # ✅ Ensure conditional edges maintain `question`
+    workflow.add_conditional_edges(
+        "mr_camp_action",
+        self.should_ask,
+        {
+            "ask": lambda state: {**state, "question": state["question"]}, 
+            "not_ask": lambda state: {**state, "question": state["question"], "attempts_count": state["attempts_count"]},
+        }
+    )
 
-        for output in self.app.stream(inputs, {"recursion_limit": 100}, stream_mode='updates'):
-            print(output)
-            for idx, (key, value) in enumerate(output.items()):
-                if key.endswith("agent") and verbose:
-                    print(f"Agent {key} working...")
-                elif key.endswith("_action") and verbose:
-                    print(f"Current action: `{value['actions']}`")
-                    print(f"Current output: {value.get('inter', '')}")
-                elif key == "date_extraction" and verbose:
-                    print(value["date_filter"])
-                    print("Date filter for the current question:")
-                elif key == "sugest_pergunta" and verbose:
-                    print("Prompt engineering response:")
-                    print(value["messages"])
-                elif key == "add_count" and verbose:
-                    print("Adding attempt count:")
-                    print(value["attempts_count"])
-                elif key == "resposta" and verbose:
-                    print("Verificando resposta:")
-                    print(value["messages"])
-                elif verbose:
-                    print("Finishing up...")
-                    print(f"Final output: {value.get('inter', '')}")
-                    print(f"Final action chain: {' -> '.join(value.get('actions', []))} -> <END>")
+    workflow.add_conditional_edges(
+        "resposta",
+        self.need_info,
+        {
+            "more_info": lambda state: {**state, "question": state["question"]}, 
+            "ok": "END"
+        }
+    )
 
-                if "actions" in value.keys():
-                    current_action.append("->".join(value["actions"][-1]).replace("<BEGIN> -> ", "").replace("import pandas as pd;", ""))
-                
-                if 'inter' in value:
-                    inter = value.get('inter', None)
-                    if inter is not None:
-                        inter_list.append(inter)
+    workflow.add_edge("sugest_pergunta", lambda state: {**state, "question": state["question"]}, "END")
 
-            final_action = current_action[-1] if current_action else ""
-            final_table = inter_list[-1] if inter_list else []
-            final_message = value.get('messages', [""])[-1].content if "messages" in value else ""
-
-    except Exception as e:
-        print("Houve um erro no processo:")
-        print(e)
-        final_message = "Encontramos um problema processando sua pergunta. Tente novamente, com outra abordagem."
-        final_action = ''
-        final_table = ''
-
-    return final_message, final_action, final_table
+    # ✅ Compile the workflow
+    self.app = workflow.compile()
