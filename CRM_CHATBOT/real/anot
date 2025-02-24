@@ -1,23 +1,38 @@
-self.mr_camp_prompt_str = """
-Como engenheiro de dados brasileiro, especializado em análise de dados bancários de engajamento e CRM 
-(Customer Relationship Management) usando a linguagem de programação Python, seu papel é responder 
-exclusivamente a perguntas sobre a Máquina de Resultados...
-"""
+def build_workflow(self):
+    # Your workflow definition logic
+    workflow = StateGraph(AgentState)
+    
+    # Define all nodes
+    workflow.add_node("query_generation", self.call_query_generator)
+    workflow.add_node("date_extraction", self.call_date_extractor)
+    workflow.add_node("mr_camp_enrich_agent", self.call_model_mr_camp_enrich)
+    workflow.add_node("mr_camp_agent", self.call_model_mr_camp)
+    workflow.add_node("mr_camp_action", self.call_tool)
+    workflow.add_node("sugest_pergunta", self.call_sugest_pergunta)
+    workflow.add_node("add_count", self.add_count)
+    workflow.add_node("resposta", self.call_resposta)
 
-# ✅ Define `self.mr_camp_prompt` before modifying it
-self.mr_camp_prompt = ChatPromptTemplate.from_messages(
-    [
-        ("system", self.mr_camp_prompt_str),
-        MessagesPlaceholder(variable_name="messages")  # Ensure correct usage
-    ]
-)
+    # Define edges between nodes
+    workflow.set_entry_point("query_generation")
+    workflow.add_edge("query_generation", "date_extraction")
+    workflow.add_edge("date_extraction", "mr_camp_enrich_agent")
+    workflow.add_edge("mr_camp_enrich_agent", "mr_camp_agent")
+    workflow.add_edge("mr_camp_agent", "add_count")
+    workflow.add_edge("add_count", "mr_camp_action")
+    
+    workflow.add_conditional_edges(
+        "mr_camp_action",
+        self.should_ask,
+        {"ask": "sugest_pergunta", "not_ask": "resposta"}
+    )
+    
+    workflow.add_conditional_edges(
+        "resposta",
+        self.need_info,
+        {"more_info": "mr_camp_enrich_agent", "ok": "END"}
+    )
+    
+    workflow.add_edge("sugest_pergunta", "END")
 
-# ✅ Now it's safe to apply `.partial()`
-self.mr_camp_prompt = self.mr_camp_prompt.partial(table_description_mr=pdt.get_qstring_mr_camp())
-self.mr_camp_prompt = self.mr_camp_prompt.partial(column_context_mr=dt.get_col_context_mr_camp())
-
-
-from datetime import datetime  # This is already imported at the top
-
-# ✅ Corrected line:
-last_ref = (datetime.strptime(str(max(pdt.get_refs())), "%Y%m") + relativedelta(months=1)).strftime("%Y/%m/%d")
+    # Compile the workflow
+    self.app = workflow.compile()
