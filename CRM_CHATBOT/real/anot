@@ -2,29 +2,35 @@ def build_workflow(self):
     # Create the state graph
     workflow = StateGraph(AgentState)
 
-    # Add nodes with explicit `question` propagation
-    workflow.add_node("query_generation", self.call_query_generator)
-    workflow.add_node("date_extraction", self.call_date_extractor)
-    workflow.add_node("mr_camp_enrich_agent", self.call_model_mr_camp_enrich)
-    workflow.add_node("mr_camp_agent", self.call_model_mr_camp)
-    workflow.add_node("mr_camp_action", self.call_tool)
-    workflow.add_node("sugest_pergunta", self.call_sugest_pergunta)
-    workflow.add_node("add_count", self.add_count)
-    workflow.add_node("resposta", self.call_resposta)
+    # Ensure each function **receives and passes `question`** properly
+    def ensure_question(state):
+        """Ensures 'question' is always present in state."""
+        if "question" not in state:
+            state["question"] = "Pergunta não encontrada"
+        return state
 
-    # ✅ Explicitly define END as a terminal state
-    workflow.add_node("END", lambda state: state)
+    # Add nodes with wrapped functions that ensure `question` is present
+    workflow.add_node("query_generation", lambda state: ensure_question(self.call_query_generator(state)))
+    workflow.add_node("date_extraction", lambda state: ensure_question(self.call_date_extractor(state)))
+    workflow.add_node("mr_camp_enrich_agent", lambda state: ensure_question(self.call_model_mr_camp_enrich(state)))
+    workflow.add_node("mr_camp_agent", lambda state: ensure_question(self.call_model_mr_camp(state)))
+    workflow.add_node("mr_camp_action", lambda state: ensure_question(self.call_tool(state)))
+    workflow.add_node("sugest_pergunta", lambda state: ensure_question(self.call_sugest_pergunta(state)))
+    workflow.add_node("add_count", lambda state: ensure_question(self.add_count(state)))
+    workflow.add_node("resposta", lambda state: ensure_question(self.call_resposta(state)))
 
-    # ✅ Define workflow transitions without extra arguments
+    # Define END node
+    workflow.add_node("END", lambda state: state)  # No need to modify END
+
+    # ✅ Now, simple `add_edge()` calls work correctly
     workflow.set_entry_point("query_generation")
-
     workflow.add_edge("query_generation", "date_extraction")
     workflow.add_edge("date_extraction", "mr_camp_enrich_agent")
     workflow.add_edge("mr_camp_enrich_agent", "mr_camp_agent")
     workflow.add_edge("mr_camp_agent", "add_count")
     workflow.add_edge("add_count", "mr_camp_action")
 
-    # ✅ Fix conditional edges (corrected syntax)
+    # ✅ Fix conditional edges (no extra arguments)
     workflow.add_conditional_edges(
         "mr_camp_action",
         self.should_ask,
