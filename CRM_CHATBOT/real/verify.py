@@ -484,14 +484,11 @@ class MrAgent():
             return {"messages": [resposta]}
 
     def run_query(self, query: str):
-        """
-        Executa a query SQL no Athena e retorna o dataframe resultante.
-        """
         inicio = datetime.now()
         df = wr.athena.read_sql_query(
             sql=query,
-            database='database_db_compartilhado_consumer_crmcoecampanhaspj',
-            workgroup='analytics-workspace-v3',
+            database='',
+            workgroup='',
             ctas_approach=False
         )
         if not hasattr(self, 'athenas_time'):
