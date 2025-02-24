@@ -432,8 +432,8 @@ class MrAgent():
         inicio = datetime.now()
         df = wr.athena.read_sql_query(
             sql=query,
-            database='database_db_compartilhado_consumer_crmcoecampanhaspj',
-            workgroup='analytics-workspace-v3',
+            database='',
+            workgroup='',
             ctas_approach=False
         )
         if not hasattr(self, 'athenas_time'):
