@@ -1,0 +1,68 @@
+database: "workspace"
+workgroup: "primary"
+table: "pokemons_existing"
+metadata:
+  table_config:
+    name: "pokemons_existing"
+    database: "workspace"
+    workgroup: "primary"
+    maximum_rows: 1000000
+    security:
+      forbidden_operations:
+        - "DELETE"
+        - "INSERT"
+        - "ALTER"
+        - "DROP"
+        - "TRUNCATE"
+        - "UPDATE"
+  columns:
+    - name: "nome"
+      type: "string"
+      description: "Nome do Pokémon."
+    - name: "tipo"
+      type: "string"
+      description: "Tipo do Pokémon (ex.: Grama, Fogo, Água, etc.)."
+    - name: "vida"
+      type: "integer"
+      description: "Valor de vida do Pokémon."
+    - name: "forca"
+      type: "integer"
+      description: "Valor de força do Pokémon."
+    - name: "velocidade"
+      type: "integer"
+      description: "Valor de velocidade do Pokémon."
+    - name: "quantidade_evolucoes"
+      type: "integer"
+      description: "Quantidade de evoluções do Pokémon."
+    - name: "year"
+      type: "string"
+      description: "particao"
+    - name: "month"
+      type: "string"
+      description: "particao"      
+  query_guidelines:
+    - "Verificar consistência dos tipos de dados para cada coluna."
+    - "Utilizar funções de agregação (AVG, MAX, MIN) para obter estatísticas."
+    - "Filtrar por tipo ou quantidade de evoluções conforme necessário."
+    - "Garantir que o número de linhas retornado não ultrapasse o máximo permitido."
+  query_examples:
+    - description: "Consulta básica: Listar nomes e tipos dos Pokémons"
+      sql: |
+        SELECT nome, tipo
+        FROM pokemons_existing
+        LIMIT 100
+    - description: "Estatísticas por tipo: Média de vida, força e velocidade"
+      sql: |
+        SELECT tipo, AVG(vida) AS media_vida, AVG(forca) AS media_forca, AVG(velocidade) AS media_velocidade
+        FROM pokemons_existing
+        GROUP BY tipo
+    - description: "Consulta de evolução: Pokémons com mais de uma evolução"
+      sql: |
+        SELECT nome, quantidade_evolucoes
+        FROM pokemons_existing
+        WHERE quantidade_evolucoes > 1
+    - description: "Pokémons do tipo 'Fogo' com alta velocidade"
+      sql: |
+        SELECT nome, velocidade
+        FROM pokemons_existing
+        WHERE tipo = 'Fogo' AND velocidade >= 80
