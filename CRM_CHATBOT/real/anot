@@ -15,3 +15,9 @@ self.mr_camp_prompt = ChatPromptTemplate.from_messages(
 # ✅ Now it's safe to apply `.partial()`
 self.mr_camp_prompt = self.mr_camp_prompt.partial(table_description_mr=pdt.get_qstring_mr_camp())
 self.mr_camp_prompt = self.mr_camp_prompt.partial(column_context_mr=dt.get_col_context_mr_camp())
+
+
+from datetime import datetime  # This is already imported at the top
+
+# ✅ Corrected line:
+last_ref = (datetime.strptime(str(max(pdt.get_refs())), "%Y%m") + relativedelta(months=1)).strftime("%Y/%m/%d")
