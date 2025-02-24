@@ -2,7 +2,7 @@ def build_workflow(self):
     # Create the state graph
     workflow = StateGraph(AgentState)
 
-    # Add nodes
+    # Add nodes with explicit `question` propagation
     workflow.add_node("query_generation", self.call_query_generator)
     workflow.add_node("date_extraction", self.call_date_extractor)
     workflow.add_node("mr_camp_enrich_agent", self.call_model_mr_camp_enrich)
@@ -12,39 +12,32 @@ def build_workflow(self):
     workflow.add_node("add_count", self.add_count)
     workflow.add_node("resposta", self.call_resposta)
 
-    # Explicitly define END as a terminal state
-    workflow.add_node("END", lambda state: {**state})  # ✅ Ensure END receives the full state
+    # ✅ Explicitly define END as a terminal state
+    workflow.add_node("END", lambda state: state)
 
-    # Ensure `question` is always passed
+    # ✅ Define workflow transitions without extra arguments
     workflow.set_entry_point("query_generation")
 
-    # ✅ Modify edges to always propagate `question`
-    workflow.add_edge("query_generation", lambda state: {**state, "question": state.get("question", "Pergunta não encontrada")}, "date_extraction")
-    workflow.add_edge("date_extraction", lambda state: {**state, "question": state["question"]}, "mr_camp_enrich_agent")
-    workflow.add_edge("mr_camp_enrich_agent", lambda state: {**state, "question": state["question"]}, "mr_camp_agent")
-    workflow.add_edge("mr_camp_agent", lambda state: {**state, "question": state["question"]}, "add_count")
-    workflow.add_edge("add_count", lambda state: {**state, "question": state["question"]}, "mr_camp_action")
+    workflow.add_edge("query_generation", "date_extraction")
+    workflow.add_edge("date_extraction", "mr_camp_enrich_agent")
+    workflow.add_edge("mr_camp_enrich_agent", "mr_camp_agent")
+    workflow.add_edge("mr_camp_agent", "add_count")
+    workflow.add_edge("add_count", "mr_camp_action")
 
-    # ✅ Ensure conditional edges maintain `question`
+    # ✅ Fix conditional edges (corrected syntax)
     workflow.add_conditional_edges(
         "mr_camp_action",
         self.should_ask,
-        {
-            "ask": lambda state: {**state, "question": state["question"]}, 
-            "not_ask": lambda state: {**state, "question": state["question"], "attempts_count": state["attempts_count"]},
-        }
+        {"ask": "sugest_pergunta", "not_ask": "resposta"}
     )
 
     workflow.add_conditional_edges(
         "resposta",
         self.need_info,
-        {
-            "more_info": lambda state: {**state, "question": state["question"]}, 
-            "ok": "END"
-        }
+        {"more_info": "mr_camp_enrich_agent", "ok": "END"}
     )
 
-    workflow.add_edge("sugest_pergunta", lambda state: {**state, "question": state["question"]}, "END")
+    workflow.add_edge("sugest_pergunta", "END")  # Ensure suggestion agent can end
 
     # ✅ Compile the workflow
     self.app = workflow.compile()
