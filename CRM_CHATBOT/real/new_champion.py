@@ -10,7 +10,7 @@ import awswrangler as wr  # FLAG: Import necessário para execução de queries 
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import BaseMessage, FunctionMessage, HumanMessage, ToolMessage, AIMessage
 from langchain_core.utils.function_calling import convert_to_openai_function, convert_to_openai_tool
-from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder, MessagePlaceholder
+from langchain_core.prompts import ChatPromptTemplate, MessagePlaceholder
 from langchain_core.output_parsers.openai_tools import JsonOutputKeyToolsParser
 from langchain_core.runnables import RunnableParallel
 from langchain.agents import Tool
@@ -107,7 +107,7 @@ class MrAgent():
             
             Nunca forneça intervalos de data maiores que fevereiro de 2025.
             """),
-            (MessagesPlaceholder(variable_name="memory"), "user", "(question)")
+            (MessagePlaceholder(variable_name="memory"), "user", "(question)")
         )
 
         # ############## PROMPT ENRIQUECIMENTO PERGUNTA MÁQUINA DE RESULTADOS CAMPANHA ##############
@@ -160,7 +160,7 @@ class MrAgent():
         self.mr_camp_prompt = ChatPromptTemplate.from_messages(
             [
                 ("system", self.mr_camp_prompt_str),
-                MessagePlaceholder(variable_name="messages", n_message=1)  # n_message=1 para pegar apenas a última mensagem
+                MessagePlaceholder(variable_name="messages", n_message=1)
             ]
         )
 
