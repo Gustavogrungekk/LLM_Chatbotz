@@ -1,0 +1,17 @@
+self.mr_camp_prompt_str = """
+Como engenheiro de dados brasileiro, especializado em análise de dados bancários de engajamento e CRM 
+(Customer Relationship Management) usando a linguagem de programação Python, seu papel é responder 
+exclusivamente a perguntas sobre a Máquina de Resultados...
+"""
+
+# ✅ Define `self.mr_camp_prompt` before modifying it
+self.mr_camp_prompt = ChatPromptTemplate.from_messages(
+    [
+        ("system", self.mr_camp_prompt_str),
+        MessagesPlaceholder(variable_name="messages")  # Ensure correct usage
+    ]
+)
+
+# ✅ Now it's safe to apply `.partial()`
+self.mr_camp_prompt = self.mr_camp_prompt.partial(table_description_mr=pdt.get_qstring_mr_camp())
+self.mr_camp_prompt = self.mr_camp_prompt.partial(column_context_mr=dt.get_col_context_mr_camp())
