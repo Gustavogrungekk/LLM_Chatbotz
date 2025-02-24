@@ -67,20 +67,20 @@ class MrAgent():
                     {
                         "description": "Consulta básica com filtro de partições",
                         "sql": "SELECT produto, AVG(potencial) as media_potencial FROM gold WHERE year = 2024 AND month = 5 AND canal = 'VAI' GROUP BY produto LIMIT 100"
-                    },
+                    }
                     # ... outros exemplos
                 ]
             },
             "columns": [
-                {"name": "cnpj", "type": "bigint", "description": "Campo unico para identificar o cliente que recebeu alguma camapnha", "ignore_values": []},
+                {"name": "cnpj", "type": "bigint", "description": "Campo único para identificar o cliente que recebeu alguma campanha", "ignore_values": []},
                 {"name": "produto", "type": "string", "description": "Tipo de produto financeiro", "ignore_values": []},
-                {"name": "abastecido", "type": "int", "description": "Campo numerico podendo ser 0 ou 1 para identificar se um cliente foi abastecido! Exemplo WHERE abastecido=1, COUNT(DISTINCT WHEN abastecido=1)"},
-                {"name": "potencial", "type": "int", "description": "Campo numerico podendo ser 0 ou 1 para identificar se um cliente foi potencial! Exemplo WHERE potencial=1, COUNT(DISTINCT WHEN potencial=1)"},
-                {"name": "visto", "type": "int", "description": "Campo numerico podendo ser 0 ou 1 para identificar se um cliente visualizou a campanha! Exemplo WHERE visto=1, COUNT(DISTINCT WHEN visto=1)"},
-                {"name": "clique", "type": "int", "description": "Campo numerico podendo ser 0 ou 1 para identificar se um cliente clicou em uma campanha! Exemplo WHERE clique=1, COUNT(DISTINCT WHEN clique=1)"},
-                {"name": "atuado", "type": "int", "description": "Campo numerico podendo ser 0 ou 1 para identificar se um cliente clicou em uma campanha! Exemplo WHERE atuado=1, COUNT(DISTINCT WHEN atuado=1)"},
-                {"name": "disponivel", "type": "int", "description": "Campo numerico podendo ser 0 ou 1 para identificar se um cliente clicou em uma campanha! Exemplo WHERE disponivel=1, COUNT(DISTINCT WHEN disponivel=1)"},
-                {"name": "canal", "type": "string", "description": "Campo para identificar em qual canal foi disparado a campanha"},
+                {"name": "abastecido", "type": "int", "description": "Campo numérico podendo ser 0 ou 1 para identificar se um cliente foi abastecido!", "ignore_values": []},
+                {"name": "potencial", "type": "int", "description": "Campo numérico podendo ser 0 ou 1 para identificar se um cliente foi potencial!", "ignore_values": []},
+                {"name": "visto", "type": "int", "description": "Campo numérico podendo ser 0 ou 1 para identificar se um cliente visualizou a campanha!", "ignore_values": []},
+                {"name": "clique", "type": "int", "description": "Campo numérico podendo ser 0 ou 1 para identificar se um cliente clicou em uma campanha!", "ignore_values": []},
+                {"name": "atuado", "type": "int", "description": "Campo numérico podendo ser 0 ou 1 para identificar se um cliente atuou em uma campanha!", "ignore_values": []},
+                {"name": "disponivel", "type": "int", "description": "Campo numérico podendo ser 0 ou 1 para identificar se um cliente estava disponível para a campanha!", "ignore_values": []},
+                {"name": "canal", "type": "string", "description": "Campo para identificar em qual canal foi disparada a campanha"},
                 {"name": "metrica_engajamento", "type": "double", "description": "Índice de engajamento do cliente"}
             ],
             "query_guidelines": [
@@ -237,8 +237,9 @@ class MrAgent():
         self.enrich_mr_camp_prompt = self.enrich_mr_camp_prompt.partial(
             column_context_mr=dt.get_col_context_mr_camp()
         )
-
-        self.model_enrich_mr_camp = self.enrich_mr_camp_prompt | ChatOpenAI(model="gpt-4-0125-preview", temperature=0, seed=1)
+        self.model_enrich_mr_camp = self.enrich_mr_camp_prompt | ChatOpenAI(
+            model="gpt-4-0125-preview", temperature=0, seed=1
+        )
 
         # Agente Máquina de Resultados Campanha
         self.mr_camp_prompt = self.mr_camp_prompt.partial(
@@ -247,10 +248,9 @@ class MrAgent():
         self.mr_camp_prompt = self.mr_camp_prompt.partial(
             column_context_mr=dt.get_col_context_mr_camp()
         )
-
-        self.model_mr_camp = self.mr_camp_prompt | ChatOpenAI(model="gpt-4-0125-preview", temperature=0, seed=1).bind_tools(
-            self.tools, parallel_tool_calls=False, tool_choice="evaluate_pandas_chain"
-        )
+        self.model_mr_camp = self.mr_camp_prompt | ChatOpenAI(
+            model="gpt-4-0125-preview", temperature=0, seed=1
+        ).bind_tools(self.tools, parallel_tool_calls=False, tool_choice="evaluate_pandas_chain")
 
         # Define date Tool
         last_ref = (datetime.strptime(str(max(pdt.get_refs())), "%Y%m") + relativedelta(months=1)).strftime("%Y/%m/%d")
@@ -262,19 +262,31 @@ class MrAgent():
             [DateToolDesc], tool_choice='DateToolDesc'
         )
         partial_model = self.date_prompt | date_llm | JsonOutputKeyToolsParser(key_name='DateToolDesc') | (lambda x: x[0]["pandas_str"])
-        self.date_extractor = RunnableParallel(pandas_str=partial_model, refs_list=lambda x: pdt.get_refs()) | ChatOpenAI(model="gpt-4-0125-preview", temperature=0, seed=1)
+        self.date_extractor = RunnableParallel(pandas_str=partial_model, refs_list=lambda x: pdt.get_refs()) | ChatOpenAI(
+            model="gpt-4-0125-preview", temperature=0, seed=1
+        )
         
         # Inclusão do modelo para verificação da pergunta
-        self.suges_pergunta_prompt = self.suges_pergunta_prompt.partial(table_desc=pdt.get_qstring_mr_camp())
-        self.suges_pergunta_prompt = self.suges_pergunta_prompt.partial(metadados=dt.get_col_context_mr_camp())
-        self.sugest_model = self.suges_pergunta_prompt | ChatOpenAI(model="gpt-4-0125-preview", temperature=0, seed=1)
+        self.suges_pergunta_prompt = self.suges_pergunta_prompt.partial(
+            table_desc=pdt.get_qstring_mr_camp()
+        )
+        self.suges_pergunta_prompt = self.suges_pergunta_prompt.partial(
+            metadados=dt.get_col_context_mr_camp()
+        )
+        self.sugest_model = self.suges_pergunta_prompt | ChatOpenAI(
+            model="gpt-4-0125-preview", temperature=0, seed=1
+        )
 
         # Inclusão do verificador de resposta
-        self.resposta_prompt = self.resposta_prompt.partial(table_desc=pdt.get_qstring_mr_camp())
-        self.resposta_prompt = self.resposta_prompt.partial(metadados=dt.get_col_context_mr_camp())
-        self.resposta_model = self.resposta_prompt | ChatOpenAI(model="gpt-4-0125-preview", temperature=0, seed=1).bind_tools(
-            [ask_more_info], parallel_tool_calls=False
+        self.resposta_prompt = self.resposta_prompt.partial(
+            table_desc=pdt.get_qstring_mr_camp()
         )
+        self.resposta_prompt = self.resposta_prompt.partial(
+            metadados=dt.get_col_context_mr_camp()
+        )
+        self.resposta_model = self.resposta_prompt | ChatOpenAI(
+            model="gpt-4-0125-preview", temperature=0, seed=1
+        ).bind_tools([ask_more_info], parallel_tool_calls=False)
 
         # FLAG DE MUDANÇA: Novo prompt para geração de query
         self.query_generation_prompt_str = """
@@ -295,7 +307,9 @@ class MrAgent():
         self.query_generation_prompt = ChatPromptTemplate.from_messages([
             ("system", self.query_generation_prompt_str)
         ])
-        self.model_query_generator = self.query_generation_prompt | ChatOpenAI(model="gpt-4-0125-preview", temperature=0, seed=1)
+        self.model_query_generator = self.query_generation_prompt | ChatOpenAI(
+            model="gpt-4-0125-preview", temperature=0, seed=1
+        )
 
         # Construção do workflow
         self.build_workflow()
@@ -308,6 +322,7 @@ class MrAgent():
         query = context['messages'][-1]["content"]
         memory = context['messages'][:-1]
 
+        # Estado inicial: tanto "question" quanto "messages" são fornecidos
         inputs = {
             "messages": [HumanMessage(content=query)],
             "actions": ["<BEGIN>"],
@@ -412,14 +427,20 @@ class MrAgent():
             return "more_info"
         return "ok"
 
-    # FLAG DE MUDANÇA: Novo método de geração de query e obtenção do dataframe via Athena
     def call_query_generator(self, state):
-        question = state["question"]
+        print("call_query_generator received state keys:", list(state.keys()))
+        
+        # Extrai a pergunta do estado (utilizando a chave "question")
+        question = state.get("question")
+        if not question:
+            raise ValueError("State is missing the 'question' key")
+        print("Extracted question:", question)
+        
         metadata_str = json.dumps(self.metadata, indent=2)
         forbidden_operations = ", ".join(self.metadata["table_config"]["security"]["forbidden_operations"])
         maximum_rows = self.metadata["table_config"]["security"]["maximum_rows"]
         query_guidelines = "\n".join(self.metadata.get("query_guidelines", []))
-
+        
         _ = self.query_generation_prompt.partial(
             forbidden_operations=forbidden_operations,
             maximum_rows=maximum_rows,
@@ -427,6 +448,7 @@ class MrAgent():
             query_guidelines=query_guidelines,
             question=question
         )
+        
         response = self.model_query_generator.invoke({
             "forbidden_operations": forbidden_operations,
             "maximum_rows": maximum_rows,
@@ -434,19 +456,17 @@ class MrAgent():
             "query_guidelines": query_guidelines,
             "question": question
         })
+        
         generated_query = response.content.strip()
         print("Query Gerada para Homologação (antes do ajuste de data):")
         print(generated_query)
         
-        # Se o LLM não incluiu nenhuma condição de data, injeta o filtro padrão
         query_lower = generated_query.lower()
         if "year" not in query_lower and "month" not in query_lower:
-            # Obter a última referência disponível (supondo que get_refs() retorne valores no formato YYYYMM)
             max_ref = max(self.pdt.get_refs())
             default_year = str(max_ref)[:4]
             default_month = str(max_ref)[4:].zfill(2)
             date_filter = f"year = '{default_year}' AND month = '{default_month}'"
-            # Se houver cláusula WHERE, adiciona com AND; senão, cria uma cláusula WHERE
             if "where" in query_lower:
                 generated_query = generated_query.rstrip(";") + f" AND {date_filter};"
             else:
@@ -459,42 +479,38 @@ class MrAgent():
         
         df = self.run_query(generated_query)
         if 'safra' not in df.columns and 'year' in df.columns and 'month' in df.columns:
-            df['safra'] = df['year'].astype(str) + df['month'].astype(str).str.zfill(2)
+            df['safra'] = df['year'].astype(str) + df['month'].astype(str).zfill(2)
             print("Coluna 'safra' criada a partir de 'year' e 'month'.")
         self.pdt.df = df
-        return {"generated_query": generated_query, "df": df}
+        
+        new_state = dict(state)
+        new_state.update({"generated_query": generated_query, "df": df})
+        return new_state
 
-    def build_workflow(self):
-        # FLAG DE MUDANÇA: Novo nó "query_generation" adicionado ao workflow
-        workflow = StateGraph(AgentState)
-        workflow.add_node("query_generation", self.call_query_generator)
-        workflow.add_node("date_extraction", self.call_date_extractor)
-        workflow.add_node("mr_camp_enrich_agent", self.call_model_mr_camp_enrich)
-        workflow.add_node("mr_camp_agent", self.call_model_mr_camp)
-        workflow.add_node("mr_camp_action", self.call_tool)
-        workflow.add_node("sugest_pergunta", self.call_sugest_pergunta)
-        workflow.add_node("add_count", self.add_count)
-        workflow.add_node("resposta", self.call_resposta)
-        workflow.set_entry_point("query_generation")
-        workflow.add_edge("query_generation", "date_extraction")
-        workflow.add_edge("date_extraction", "mr_camp_enrich_agent")
-        workflow.add_edge("mr_camp_enrich_agent", "mr_camp_agent")
-        workflow.add_edge("mr_camp_agent", "add_count")
-        workflow.add_edge("add_count", "mr_camp_action")
-        workflow.add_conditional_edges(
-            "mr_camp_action",
-            self.should_ask,
-            {"ask": "sugest_pergunta", "not_ask": "resposta"}
-        )
-        workflow.add_conditional_edges(
-            "resposta",
-            self.need_info,
-            {"more_info": "mr_camp_enrich_agent", "ok": "END"}
-        )
-        workflow.add_edge("sugest_pergunta", "END")
-        self.app = workflow.compile()
+    def call_date_extractor(self, state):
+        date_list = self.date_extractor.invoke(state)
+        new_state = dict(state)
+        new_state.update({"date_filter": date_list})
+        return new_state
 
-    # Método para execução das ferramentas
+    def call_sugest_pergunta(self, state):
+        sugestao = self.sugest_model.invoke(state)
+        new_state = dict(state)
+        new_state.update({"messages": [sugestao]})
+        return new_state
+
+    def call_model_mr_camp_enrich(self, state):
+        response = self.model_enrich_mr_camp.invoke(state)
+        new_state = dict(state)
+        new_state.update({"messages": [response]})
+        return new_state
+
+    def call_model_mr_camp(self, state):
+        response = self.model_mr_camp.invoke(state)
+        new_state = dict(state)
+        new_state.update({"messages": [response]})
+        return new_state
+
     def call_tool(self, state):
         messages = state['messages']
         last_message = messages[-1]
@@ -527,7 +543,7 @@ class MrAgent():
                 You must correct your approach and continue until you can answer the question:
                 {state['question']}
                 
-                Continue the chain with the following format: action_i -> action_i+1... -> <END>
+                Continue the chain with the following format: action_i -> action_i+1... -> <BEGIN> -> <END>
                 """
                 print(error_info)
                 function_message = ToolMessage(
@@ -550,7 +566,7 @@ class MrAgent():
                 You must continue until you can answer the question:
                 {state['question']}
                 
-                Continue the chain with the following format: action_i -> action_i+1 ... -> <END>
+                Continue the chain with the following format: action_i -> action_i+1 ... -> <BEGIN> -> <END>
                 """
                 print(success_info)
                 function_message = ToolMessage(
@@ -563,35 +579,24 @@ class MrAgent():
                 output_dict["inter"] = inter
                 print("TOOL OUTPUT")
                 print(output_dict)
-        return output_dict
-
-    def call_model_mr_camp_enrich(self, state):
-        response = self.model_enrich_mr_camp.invoke(state)
-        return {"messages": [response]}
-
-    def call_model_mr_camp(self, state):
-        response = self.model_mr_camp.invoke(state)
-        return {"messages": [response]}
-
-    def call_date_extractor(self, state):
-        date_list = self.date_extractor.invoke(state)
-        return {"date_filter": date_list}
-
-    def call_sugest_pergunta(self, state):
-        sugestao = self.sugest_model.invoke(state)
-        return {"messages": [sugestao]}
+        new_state = dict(state)
+        new_state.update(output_dict)
+        return new_state
 
     def call_resposta(self, state):
         resposta = self.resposta_model.invoke(state)
         print("RESPOSTA AQUIIIIIII -->", resposta)
         if not resposta.tool_calls:
-            return {"messages": [resposta]}
+            new_state = dict(state)
+            new_state.update({"messages": [resposta]})
+            return new_state
         else:
             resposta = "Mais informações:"
             resposta = AIMessage(resposta)
-            return {"messages": [resposta]}
+            new_state = dict(state)
+            new_state.update({"messages": [resposta]})
+            return new_state
 
-    # FLAG DE MUDANÇA: Método para executar a query no Athena
     def run_query(self, query: str):
         inicio = datetime.now()
         df = wr.athena.read_sql_query(
@@ -605,3 +610,32 @@ class MrAgent():
         self.athenas_time.append(datetime.now() - inicio)
         print(f"TEMPO EXEC ATHENA: {datetime.now() - inicio}")
         return df
+
+    def build_workflow(self):
+        workflow = StateGraph(AgentState)
+        workflow.add_node("query_generation", self.call_query_generator)
+        workflow.add_node("date_extraction", self.call_date_extractor)
+        workflow.add_node("mr_camp_enrich_agent", self.call_model_mr_camp_enrich)
+        workflow.add_node("mr_camp_agent", self.call_model_mr_camp)
+        workflow.add_node("add_count", self.add_count)
+        workflow.add_node("mr_camp_action", self.call_tool)
+        workflow.add_node("sugest_pergunta", self.call_sugest_pergunta)
+        workflow.add_node("resposta", self.call_resposta)
+        workflow.set_entry_point("query_generation")
+        workflow.add_edge("query_generation", "date_extraction")
+        workflow.add_edge("date_extraction", "mr_camp_enrich_agent")
+        workflow.add_edge("mr_camp_enrich_agent", "mr_camp_agent")
+        workflow.add_edge("mr_camp_agent", "add_count")
+        workflow.add_edge("add_count", "mr_camp_action")
+        workflow.add_conditional_edges(
+            "mr_camp_action",
+            self.should_ask,
+            {"ask": "sugest_pergunta", "not_ask": "resposta"}
+        )
+        workflow.add_conditional_edges(
+            "resposta",
+            self.need_info,
+            {"more_info": "mr_camp_enrich_agent", "ok": END}
+        )
+        workflow.add_edge("sugest_pergunta", END)
+        self.app = workflow.compile()
