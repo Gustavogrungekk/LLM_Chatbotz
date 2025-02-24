@@ -1,8 +1,8 @@
 def build_workflow(self):
-    # Your workflow definition logic
+    # Create the state graph
     workflow = StateGraph(AgentState)
-    
-    # Define all nodes
+
+    # Add nodes
     workflow.add_node("query_generation", self.call_query_generator)
     workflow.add_node("date_extraction", self.call_date_extractor)
     workflow.add_node("mr_camp_enrich_agent", self.call_model_mr_camp_enrich)
@@ -12,27 +12,32 @@ def build_workflow(self):
     workflow.add_node("add_count", self.add_count)
     workflow.add_node("resposta", self.call_resposta)
 
-    # Define edges between nodes
-    workflow.set_entry_point("query_generation")
+    # Explicitly define END as a terminal state
+    workflow.add_node("END", lambda state: state)
+
+    # Define edges (sequence of execution)
+    workflow.set_entry_point("query_generation")  # Start at query_generation
+
     workflow.add_edge("query_generation", "date_extraction")
     workflow.add_edge("date_extraction", "mr_camp_enrich_agent")
     workflow.add_edge("mr_camp_enrich_agent", "mr_camp_agent")
     workflow.add_edge("mr_camp_agent", "add_count")
     workflow.add_edge("add_count", "mr_camp_action")
-    
+
+    # Handle decision-making for next steps
     workflow.add_conditional_edges(
         "mr_camp_action",
         self.should_ask,
         {"ask": "sugest_pergunta", "not_ask": "resposta"}
     )
-    
+
     workflow.add_conditional_edges(
         "resposta",
         self.need_info,
         {"more_info": "mr_camp_enrich_agent", "ok": "END"}
     )
-    
-    workflow.add_edge("sugest_pergunta", "END")
+
+    workflow.add_edge("sugest_pergunta", "END")  # Ensure suggestion agent can end
 
     # Compile the workflow
     self.app = workflow.compile()
