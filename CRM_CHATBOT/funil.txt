@@ -1,0 +1,15 @@
+Etapas do funil (com base e fórmula):
+	1.	Entregue
+% = (Entregue / Abastecido) * 100
+	2.	Acesso
+% = (Acesso / Entregue) * 100
+	3.	Acesso local
+% = (Acesso local / Acesso) * 100
+	4.	Visto
+% = (Visto / Acesso local) * 100
+	5.	Clique
+% = (Clique / Visto) * 100
+	6.	Contratação todos os canais
+% = (Contratação todos os canais / Clique) * 100
+	7.	Contratação canal
+% = (Contratação canal / Clique) * 100
