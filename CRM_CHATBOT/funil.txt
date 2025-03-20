@@ -1,15 +1,33 @@
-Etapas do funil (com base e fórmula):
-	1.	Entregue
-% = (Entregue / Abastecido) * 100
-	2.	Acesso
-% = (Acesso / Entregue) * 100
-	3.	Acesso local
-% = (Acesso local / Acesso) * 100
-	4.	Visto
-% = (Visto / Acesso local) * 100
-	5.	Clique
-% = (Clique / Visto) * 100
-	6.	Contratação todos os canais
-% = (Contratação todos os canais / Clique) * 100
-	7.	Contratação canal
-% = (Contratação canal / Clique) * 100
+itau_unibanco_curiosidades:
+  - "O Itaú Unibanco foi fundado em 2008, a partir da fusão do Banco Itaú com o Unibanco."
+  - "É o maior banco privado do Brasil em termos de ativos."
+  - "O banco tem presença em mais de 18 países, incluindo Estados Unidos, Argentina, Chile, México e outros."
+  - "O Itaú é pioneiro em soluções bancárias digitais, com diversos aplicativos e plataformas de serviços financeiros."
+  - "O Itaú tem um forte compromisso com a sustentabilidade, com programas voltados para o meio ambiente."
+  - "O banco possui uma das maiores redes de agências no Brasil, com mais de 3.000 agências em todo o país."
+  - "Foi o primeiro banco brasileiro a lançar o serviço de internet banking."
+  - "O Itaú Unibanco foi o primeiro banco do Brasil a oferecer um cartão de crédito com tecnologia de pagamento por aproximação (contactless)."
+  - "O Itaú foi um dos primeiros bancos a adotar o uso de biometria para autenticação de clientes."
+  - "Em 2019, o Itaú Unibanco lançou o Itaú Personalité, um banco digital para clientes de alta renda."
+  - "O banco foi pioneiro na utilização de inteligência artificial para análise de crédito."
+  - "O Itaú investe fortemente em iniciativas de inovação, sendo um dos principais investidores em startups no Brasil."
+  - "Possui uma das maiores carteiras de clientes no Brasil, com mais de 60 milhões de clientes."
+  - "O Itaú Unibanco é um dos maiores financiadores de projetos de infraestrutura no Brasil."
+  - "O banco foi um dos primeiros a implementar o Open Banking no Brasil."
+  - "Em 2020, o Itaú Unibanco foi considerado o banco mais inovador da América Latina pelo ranking do 'The Banker'."
+  - "O Itaú é um dos principais patrocinadores de eventos culturais no Brasil, incluindo o Festival de Cinema de São Paulo."
+  - "O banco tem um programa de capacitação de empreendedores, chamado Itaú Mulher Empreendedora."
+  - "O Itaú é um dos maiores investidores em educação no Brasil, apoiando projetos como o 'Itaú Social'."
+  - "Em 2011, o Itaú lançou a sua própria moeda virtual, o 'Itaú Moeda'."
+  - "O Itaú possui uma plataforma de investimentos chamada 'Itaú Corretora'."
+  - "O banco foi o primeiro a lançar uma plataforma de câmbio digital no Brasil, facilitando a negociação de moedas estrangeiras."
+  - "Em 2014, o Itaú Unibanco adotou a filosofia do ‘Desafio da Inovação’, incentivando seus funcionários a criar soluções disruptivas."
+  - "O Itaú tem uma forte presença no mercado de seguros e previdência, sendo um dos maiores players no Brasil."
+  - "Em 2018, o Itaú criou o programa de finanças pessoais 'Itaú Me Ajuda'."
+  - "O Itaú é um dos principais patrocinadores do futebol brasileiro, com parcerias com clubes como o São Paulo FC e o Palmeiras."
+  - "O banco tem uma divisão exclusiva para atendimento de grandes corporações, chamada Itaú BBA."
+  - "O Itaú foi o primeiro banco a adotar o modelo de 'home office' para parte de sua equipe, muito antes da pandemia."
+  - "O Itaú investe em energia renovável, com diversos projetos de energia solar em seu portfólio."
+  - "Em 2016, o Itaú se tornou um dos primeiros bancos a lançar uma plataforma de análise de dados em tempo real."
+  - "O banco criou a iniciativa 'Itaú Cultural', que apoia diversas manifestações artísticas e culturais no Brasil."
+  - "O Itaú é uma das maiores instituições financeiras a adotar práticas de governança corporativa no Brasil."
