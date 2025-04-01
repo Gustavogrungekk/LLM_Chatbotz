@@ -22,8 +22,16 @@ def save_to_athena(depara_table, s3_output_path, database_name, table_name):
 glue_client = boto3.client('glue', region_name='sa-east-1')
 
 def get_last_partitions(allowed_databases=None):
-    # Lista todos os bancos de dados no catálogo do Glue
-    databases = glue_client.get_databases()['DatabaseList']
+    # Lista todos os bancos de dados no catálogo do Glue com paginação
+    next_token = None
+    databases = []
+    while True:
+        response = glue_client.get_databases(NextToken=next_token) if next_token else glue_client.get_databases()
+        databases.extend(response['DatabaseList'])
+        next_token = response.get('NextToken')
+        if not next_token:
+            break
+            
     depara_table = []
 
     for db in databases:
@@ -33,7 +41,7 @@ def get_last_partitions(allowed_databases=None):
         if allowed_databases and database_name not in allowed_databases:
             continue
         
-        # Paginação
+        # Paginação para tabelas
         next_token = None
         tables = []
         while True:
@@ -46,6 +54,10 @@ def get_last_partitions(allowed_databases=None):
         for table in tables:
             table_name = table['Name']
             
+            # Skip tables without partition keys
+            if not table.get('PartitionKeys'):
+                continue
+                
             # Paginação para listar todas as partições da tabela
             next_token = None
             partitions = []
@@ -86,7 +98,7 @@ s3_output_path = "s3://your-bucket-name/path/to/depara_table/"
 athena_database_name = "your_athena_database"
 athena_table_name = "depara_table"
 
-# Define a lista de databases
+# Define a list of databases to include in the search
 allowed_databases = ['workspace']
 
 # Chama a função para obter as partições e salva no Athena
