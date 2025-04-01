@@ -1,142 +1,83 @@
-from pyspark.sql import SparkSession
-from awsglue.utils import getResolvedOptions
-from datetime import date, timedelta
-from dateutil.relativedelta import relativedelta
-import jaydebeapi
-import sys
+import boto3
+from datetime import datetime
+import awswrangler as wr
+import pandas as pd
 
-# =============== Spark ================
-spark = SparkSession.builder \
-    .config('spark.sql.legacy.parquet.datetimeRebaseModeInRead', 'CORRECTED') \
-    .config('spark.sql.files.maxPartitionBytes', 134217728) \
-    .enableHiveSupport() \
-    .getOrCreate()
+def save_to_athena(depara_table, s3_output_path, database_name, table_name):
+    # Convert the depara_table list to a Pandas DataFrame
+    df = pd.DataFrame(depara_table)
+    
+    # Save the DataFrame to S3 in Parquet format
+    wr.s3.to_parquet(
+        df=df,
+        path=s3_output_path,
+        dataset=True,
+        mode="overwrite",
+        database=database_name,
+        table=table_name
+    )
+    print(f"Data saved to Athena table {table_name} in database {database_name}.")
 
-# =============== Parâmetros ================
-args = getResolvedOptions(sys.argv, ['MES'])
+# Inicializa o cliente do Glue (usado para consultar o catálogo do Athena) com uma região específica
+glue_client = boto3.client('glue', region_name='sa-east-1')
 
-today = (date.today() - timedelta(days=1) + relativedelta(months=-int(args['MES'])))
-year_str = today.strftime('%Y')
-month_str = today.strftime('%m')
+def get_last_partitions():
+    # Lista todos os bancos de dados no catálogo do Glue
+    databases = glue_client.get_databases()['DatabaseList']
+    depara_table = []
 
-# =============== Configurações ================
-schema = 'workspace_db'
-athena_table = 'tbl_coeres_painel_anomes_v1_gold'
-hive_table = 'ghp00005.tbl_coeres_painel_anomes_v1_gold'
-partition_cols = ['year', 'month', 'canal']  # todas devem ser string
+    for db in databases:
+        database_name = db['Name']
+        
+        # Paginação
+        next_token = None
+        tables = []
+        while True:
+            response = glue_client.get_tables(DatabaseName=database_name, NextToken=next_token) if next_token else glue_client.get_tables(DatabaseName=database_name)
+            tables.extend(response['TableList'])
+            next_token = response.get('NextToken')
+            if not next_token:
+                break
+        
+        for table in tables:
+            table_name = table['Name']
+            
+            # Paginação para listar todas as partições da tabela
+            next_token = None
+            partitions = []
+            while True:
+                response = glue_client.get_partitions(DatabaseName=database_name, TableName=table_name, NextToken=next_token) if next_token else glue_client.get_partitions(DatabaseName=database_name, TableName=table_name)
+                partitions.extend(response.get('Partitions', []))
+                next_token = response.get('NextToken')
+                if not next_token:
+                    break
+            
+            if partitions:
+                # Obtém a última partição (assumindo que as partições estão ordenadas)
+                last_partition = sorted(partitions, key=lambda p: p['Values'])[-1]
+                partition_values = last_partition['Values']
+                partition_keys = [key['Name'] for key in table['PartitionKeys']]
+                
+                partition_conditions = " and ".join(
+                    f"{key}={repr(value) if isinstance(value, str) else value}"
+                    for key, value in zip(partition_keys, partition_values)
+                )
+                
+                depara_table.append({
+                    'database': database_name,
+                    'table': table_name,
+                    'partition': partition_conditions,
+                    'updated_at': datetime.now().strftime("%Y-%m-%d")
+                })
 
-# JDBC
-jdbc_url = 'jdbc:hive2://<host>:<port>/<db>;transportMode=http;httpPath=cliservice'
-jdbc_username = '<YOUR_USER>'
-jdbc_password = '<YOUR_PASSWORD>'
-jdbc_driver = 'HiveJDBC42.jar'
-jdbc_jar_driver = 'com.cloudera.hive.jdbc.HS2Driver'
-jdbc_jar_path = f"/path/to/{jdbc_driver}"
+    return depara_table
 
-# =============== Leitura do Athena (Glue Catalog) ================
-df = spark.read \
-    .format("awsdatacatalog") \
-    .option("catalog", "AwsDataCatalog") \
-    .option("database", schema) \
-    .option("table", athena_table) \
-    .load()
+#========================================================================#
+# Configurações para salvar os dados no Athena
+s3_output_path = "s3://your-bucket-name/path/to/depara_table/"
+athena_database_name = "your_athena_database"
+athena_table_name = "depara_table"
 
-# Filtro da partição desejada
-df_partition = df.filter(
-    (df["year"] == year_str) &
-    (df["month"] == month_str)
-)
-
-# =============== Geração do CREATE TABLE dinâmico ================
-def generate_create_table_sql(df, table_name, partition_columns):
-    cols = []
-    partitions = []
-
-    for field in df.schema.fields:
-        col_name = field.name
-        data_type = field.dataType.simpleString()
-
-        # Força partições como string
-        if col_name in partition_columns:
-            partitions.append(f"{col_name} STRING")
-        else:
-            # Conversão básica Spark -> Hive
-            if data_type.startswith("string"):
-                cols.append(f"{col_name} STRING")
-            elif data_type.startswith("int"):
-                cols.append(f"{col_name} INT")
-            elif data_type.startswith("double"):
-                cols.append(f"{col_name} DOUBLE")
-            elif data_type.startswith("bigint"):
-                cols.append(f"{col_name} BIGINT")
-            elif data_type.startswith("timestamp"):
-                cols.append(f"{col_name} TIMESTAMP")
-            else:
-                cols.append(f"{col_name} STRING")  # default
-
-    create_stmt = f"CREATE TABLE {table_name} (\n  " + ",\n  ".join(cols) + "\n)"
-    if partitions:
-        create_stmt += f"\nPARTITIONED BY (\n  " + ",\n  ".join(partitions) + "\n)"
-    create_stmt += "\nSTORED AS PARQUET"
-
-    return create_stmt
-
-# =============== Verifica se tabela existe e cria se necessário ================
-def ensure_table_exists(jdbc_url, user, password, driver, jar_path, table_name, create_sql):
-    conn = jaydebeapi.connect(driver, jdbc_url, [user, password], jar_path)
-    cursor = conn.cursor()
-
-    cursor.execute(f"SHOW TABLES LIKE '{table_name.split('.')[-1]}'")
-    result = cursor.fetchall()
-
-    if not result:
-        print("Tabela não existe. Criando...")
-        print(f"CREATE SQL:\n{create_sql}")
-        cursor.execute(create_sql)
-        print("Tabela criada com sucesso.")
-    else:
-        print("Tabela já existe. Continuando...")
-
-    conn.close()
-
-# =============== Deleta partições por canal ================
-def delete_partition(year, month, canal):
-    print(f"Deletando partição: year={year}, month={month}, canal={canal}")
-    conn = jaydebeapi.connect(jdbc_jar_driver, jdbc_url, [jdbc_username, jdbc_password], jdbc_jar_path)
-    cursor = conn.cursor()
-    delete_sql = f"""
-        DELETE FROM {hive_table}
-        WHERE year = '{year}' AND month = '{month}' AND canal = '{canal}'
-    """
-    cursor.execute(delete_sql)
-    conn.close()
-    print("Partição deletada com sucesso.")
-
-# Criação da tabela se não existir
-create_sql = generate_create_table_sql(df_partition, hive_table, partition_cols)
-ensure_table_exists(jdbc_url, jdbc_username, jdbc_password, jdbc_jar_driver, jdbc_jar_path, hive_table, create_sql)
-
-# Identifica canais a serem sobrescritos
-canais = [row["canal"] for row in df_partition.select("canal").distinct().collect()]
-for canal in canais:
-    delete_partition(year_str, month_str, canal)
-
-# Reparticiona para melhor paralelismo
-df_partition = df_partition.repartition(50, "canal")
-
-# Escrita via JDBC
-print("Escrevendo dados no Hadoop via JDBC...")
-df_partition.write \
-    .format("jdbc") \
-    .option("url", jdbc_url) \
-    .option("dbtable", hive_table) \
-    .option("user", jdbc_username) \
-    .option("password", jdbc_password) \
-    .option("driver", jdbc_jar_driver) \
-    .option("batchsize", 10000) \
-    .option("numPartitions", 10) \
-    .option("partitionColumn", "canal") \
-    .mode("append") \
-    .save()
-
-print("Processo finalizado com sucesso.")
+# Chama a função para obter as partições e salva no Athena
+depara = get_last_partitions()
+save_to_athena(depara, s3_output_path, athena_database_name, athena_table_name)
