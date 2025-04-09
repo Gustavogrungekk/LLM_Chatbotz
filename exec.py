@@ -304,58 +304,80 @@ class MrAgent():
         last_message = state['messages'][-1]
         content = last_message.content.lower()
         
+        # Verificação rápida de palavras-chave antes da classificação pelo LLM
+        # Palavras associadas a métricas de engajamento bancário
+        engagement_keywords = [
+            'métrica', 'metricas', 'engajamento', 'campanha', 'campanhas', 
+            'clientes', 'cliente', 'conversão', 'taxa', 'performance', 'desempenho',
+            'crm', 'itaú', 'itau', 'banco', 'bancário', 'bancaria', 'mr',
+            'visualizações', 'cliques', 'envios', 'aberturas', 'resultado'
+        ]
+        
+        # Se contiver palavras-chave de engajamento, classifica diretamente como requisição de dados
+        for keyword in engagement_keywords:
+            if keyword in content:
+                print(f"Classificação por palavra-chave: 'requisicao_dados' (palavra encontrada: '{keyword}')")
+                return "data_request"
+        
+        # Se não encontrou palavras-chave, continua com a classificação via LLM
         # Preparar o prompt para classificação com exemplos melhorados
         classification_prompt = ChatPromptTemplate.from_messages([
-            ("system", """Você é um especialista em classificar mensagens dos usuários para um assistente de CRM bancário do Itaú.
+            ("system", """Você é um especialista em classificar mensagens para um assistente de CRM bancário.
             
-            Analise a mensagem e determine se é:
-            1. Uma saudação simples
-            2. Uma solicitação de dados sobre CRM bancário/campanhas do Itaú
-            3. Um tópico fora do escopo do agente
+            CLASSIFICAÇÃO PRECISA:
+            - "saudacao": APENAS para cumprimentos como olá, oi, bom dia.
+            - "requisicao_dados": para QUALQUER pergunta sobre métricas, campanhas, clientes ou dados bancários.
+            - "out_of_scope": para tópicos completamente não relacionados a bancos (política, filmes, etc).
             
-            Exemplos de saudações: 
-            - olá, bom dia, oi, como vai, tudo bem, quem é você
+            SEMPRE classifique como "requisicao_dados" qualquer pergunta sobre:
+            - Métricas de engajamento
+            - Taxa de conversão
+            - Desempenho de campanha
+            - Quantidade de clientes
+            - Visualizações/cliques
+            - Analytics
+            - Relatórios
+            - Dashboard
+            - Estatísticas bancárias
+            - MR (Máquina de Resultados)
+            - CRM bancário
             
-            Exemplos de requisição de dados (SEMPRE CLASSIFIQUE DÚVIDAS SOBRE DADOS BANCÁRIOS COMO "requisicao_dados"): 
-            - me mostre métricas de campanha
-            - quantos clientes visualizaram/clicaram/atuaram
-            - qual a taxa de conversão
-            - análise de desempenho da campanha
-            - qual é a quantidade de clientes ativos
-            - quantos clientes temos
-            - dados de engajamento dos clientes
+            Exemplos de "requisicao_dados":
+            - "Como foi o desempenho da campanha X?"
+            - "Quero saber sobre engajamento"
+            - "Me fale das métricas de conversão"
+            - "Quantos clientes acessaram o aplicativo?"
+            - "Me mostre as taxas de resposta"
+            - "Qual foi o resultado da última campanha?"
             
-            Exemplos de tópicos fora do escopo: 
-            - política, futebol, receitas culinárias, filmes, clima
-            - notícias gerais não relacionadas ao banco
-            - receitas de bolo ou outros pratos
-            - como funciona um motor de carro
-            - qual é o melhor time de futebol
-            
-            IMPORTANTE: QUALQUER pergunta sobre CLIENTES, MÉTRICAS BANCÁRIAS, CAMPANHAS, ou DADOS DE CRM deve ser classificada como "requisicao_dados".
-            
-            Classifique APENAS como "saudacao", "requisicao_dados" ou "out_of_scope". Responda com uma única palavra."""),
+            RESPONDA APENAS COM UMA ÚNICA PALAVRA: "saudacao", "requisicao_dados" ou "out_of_scope".
+            """),
             ("user", content)
         ])
         
-        # Usar o modelo para classificar com temperatura mais baixa para consistência
-        classifier = classification_prompt | self.llm
+        # Usar o modelo para classificar com temperatura zero para determinismo
+        classifier = classification_prompt | self.llm.with_options(temperature=0.0)
         
         # Obter a classificação do modelo
         result = classifier.invoke({})
         classification = result.content.lower().strip()
         
-        print(f"Classificação da mensagem: '{classification}'")
+        print(f"Classificação via LLM: '{classification}'")
         print(f"Conteúdo original: '{content}'")
-        print(f"Classificação final: '{classification}'")
         
-        # Retornar com base na classificação do modelo
-        if "saudacao" in classification:
-            return "greeting"
-        elif "out_of_scope" in classification:
-            return "out_of_scope"
-        else:
+        # Verificação adicional para garantir classificação correta
+        if "requisicao" in classification:
             return "data_request"
+        elif "saudacao" in classification:
+            return "greeting"
+        else:
+            # Verificação final para termos bancários antes de desistir
+            banking_terms = ['banco', 'bancário', 'itau', 'itaú', 'crm', 'mr', 'cliente', 'campanha']
+            for term in banking_terms:
+                if term in content:
+                    print(f"Classificação corrigida para 'data_request' por conter termo bancário: {term}")
+                    return "data_request"
+            return "out_of_scope"
 
     # Método para processar saudações
     def greeting_agent(self, state):
