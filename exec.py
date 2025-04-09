@@ -606,8 +606,20 @@ class MrAgent():
         return {"messages": [response]}
 
     def call_date_extractor(self, state):
-        date_list = self.date_extractor.invoke(state)
-        return {"date_filter": date_list}
+        # Extract the question from state and format properly for the date_extractor
+        question = state.get("question", "")
+        # Make sure we're passing a dictionary with the expected structure
+        formatted_input = {"question": question}
+        
+        # Invoke date_extractor with properly formatted input
+        try:
+            date_list = self.date_extractor.invoke(formatted_input)
+            print(f"Date extraction successful: {date_list}")
+            return {"date_filter": date_list, "messages": state.get("messages", [])}
+        except Exception as e:
+            print(f"Error in date extraction: {str(e)}")
+            # Return empty date filter but preserve messages to continue flow
+            return {"date_filter": [], "messages": state.get("messages", [])}
 
     def call_sugest_pergunta(self, state):
         sugestao = self.sugest_model.invoke(state)
