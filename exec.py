@@ -284,14 +284,187 @@ class MrAgent():
         # Construção do workflow
         self.build_workflow()
 
+    # Método para classificar a intenção do usuário usando LLM
+    def call_input_classifier(self, state):
+        """
+        Utiliza o modelo de linguagem para classificar a intenção do usuário.
+        """
+        question = state["question"]
+        response = self.input_classifier_model.invoke({"question": question})
+        return {"messages": [response]}
+
+    # Método para determinar se a solicitação é saudação ou requisição de dados ou fora do escopo
+    def is_valid_request(self, state):
+        """
+        Utiliza o LLM para classificar a intenção do usuário como:
+        - saudação
+        - requisição de dados
+        - fora do escopo
+        """
+        last_message = state['messages'][-1]
+        content = last_message.content.lower()
+        
+        # Preparar o prompt para classificação com exemplos melhorados
+        classification_prompt = ChatPromptTemplate.from_messages([
+            ("system", """Você é um especialista em classificar mensagens dos usuários para um assistente de CRM bancário do Itaú.
+            
+            Analise a mensagem e determine se é:
+            1. Uma saudação simples
+            2. Uma solicitação de dados sobre CRM bancário/campanhas do Itaú
+            3. Um tópico fora do escopo do agente
+            
+            Exemplos de saudações: 
+            - olá, bom dia, oi, como vai, tudo bem, quem é você
+            
+            Exemplos de requisição de dados (SEMPRE CLASSIFIQUE DÚVIDAS SOBRE DADOS BANCÁRIOS COMO "requisicao_dados"): 
+            - me mostre métricas de campanha
+            - quantos clientes visualizaram/clicaram/atuaram
+            - qual a taxa de conversão
+            - análise de desempenho da campanha
+            - qual é a quantidade de clientes ativos
+            - quantos clientes temos
+            - dados de engajamento dos clientes
+            
+            Exemplos de tópicos fora do escopo: 
+            - política, futebol, receitas culinárias, filmes, clima
+            - notícias gerais não relacionadas ao banco
+            - receitas de bolo ou outros pratos
+            - como funciona um motor de carro
+            - qual é o melhor time de futebol
+            
+            IMPORTANTE: QUALQUER pergunta sobre CLIENTES, MÉTRICAS BANCÁRIAS, CAMPANHAS, ou DADOS DE CRM deve ser classificada como "requisicao_dados".
+            
+            Classifique APENAS como "saudacao", "requisicao_dados" ou "out_of_scope". Responda com uma única palavra."""),
+            ("user", content)
+        ])
+        
+        # Usar o modelo para classificar com temperatura mais baixa para consistência
+        classifier = classification_prompt | self.llm
+        
+        # Obter a classificação do modelo
+        result = classifier.invoke({})
+        classification = result.content.lower().strip()
+        
+        print(f"Classificação da mensagem: '{classification}'")
+        print(f"Conteúdo original: '{content}'")
+        print(f"Classificação final: '{classification}'")
+        
+        # Retornar com base na classificação do modelo
+        if "saudacao" in classification:
+            return "greeting"
+        elif "out_of_scope" in classification:
+            return "out_of_scope"
+        else:
+            return "data_request"
+
+    # Método para processar saudações
+    def greeting_agent(self, state):
+        """
+        Processa saudações utilizando um modelo de linguagem especializado em português-BR.
+        """
+        question = state["question"]
+        response = self.greeting_model.invoke({"question": question})
+        return {"messages": [response]}
+
+    # Método para processar solicitações fora do escopo
+    def out_of_scope_agent(self, state):
+        """
+        Processa perguntas fora do escopo e retorna uma mensagem informativa.
+        """
+        question = state["question"]
+        response = self.out_of_scope_model.invoke({"question": question})
+        return {"messages": [response]}
+
+    # Método para buscar exemplos de consulta relevantes
+    def query_examples(self, state):
+        """
+        Utiliza LLM para encontrar exemplos de consulta relevantes para a pergunta do usuário.
+        """
+        question = state["question"]
+        
+        # Obter exemplos de consulta dos metadados
+        examples = self.metadata["table_config"]["query_examples"]
+        formatted_examples = json.dumps(examples, indent=2)
+        
+        # Invocar modelo para encontrar exemplos relevantes
+        result = self.query_examples_model.invoke({
+            "question": question,
+            "messages": state["messages"],
+            "memory": state.get("memory", []),
+            "examples": formatted_examples
+        })
+        
+        # Adicionar os exemplos selecionados ao estado para geração de consulta
+        return {
+            "messages": state["messages"],
+            "selected_examples": result.content
+        }
+
+    # Método para validar a sintaxe SQL
+    def sql_validation_agent(self, state):
+        """
+        Valida a sintaxe SQL da consulta gerada utilizando um modelo especializado.
+        """
+        # Extrair a consulta SQL da última mensagem
+        last_message = state["messages"][-1]
+        
+        # Tentar encontrar SQL no conteúdo da mensagem
+        query = ""
+        if hasattr(last_message, "tool_calls") and last_message.tool_calls:
+            for tool_call in last_message.tool_calls:
+                if tool_call.get("function", {}).get("name") == "run_query":
+                    args = json.loads(tool_call["function"]["arguments"])
+                    query = args.get("query", "")
+                    break
+        
+        if not query:
+            # Se não encontrarmos uma consulta, tentar extraí-la do conteúdo
+            content = last_message.content
+            sql_match = re.search(r"```sql\s*(.*?)\s*```", content, re.DOTALL)
+            if sql_match:
+                query = sql_match.group(1)
+        
+        # Se ainda não tivermos uma consulta, retornar um erro
+        if not query:
+            return {
+                "messages": state["messages"] + [AIMessage(content="Não foi possível encontrar uma consulta SQL válida para validação.")],
+                "sql_valid": False,
+                "sql_feedback": "Consulta SQL não encontrada."
+            }
+        
+        # Validar a consulta
+        response = self.sql_validation_model.invoke({"query": query})
+        
+        # Extrair resultado da validação
+        validation_result = {}
+        if hasattr(response, "tool_calls") and response.tool_calls:
+            for tool_call in response.tool_calls:
+                if tool_call.get("function", {}).get("name") == "validate_sql":
+                    validation_result = json.loads(tool_call["function"]["arguments"])
+                    break
+        
+        # Retornar o resultado da validação
+        return {
+            "messages": state["messages"] + [AIMessage(content=f"Validação SQL: {validation_result.get('feedback', 'Sem feedback')}")],
+            "sql_valid": validation_result.get("is_valid", False),
+            "sql_feedback": validation_result.get("feedback", "")
+        }
+
+    # Método para verificar se o SQL é válido
+    def is_sql_valid(self, state):
+        """
+        Verifica se a consulta SQL foi validada com sucesso.
+        """
+        return "valid" if state.get("sql_valid", False) else "invalid"
+
     def build_workflow(self):
         # Criar o grafo de estado
         workflow = StateGraph(AgentState)
 
         # Adicionar nós
-        # workflow.add_node("input_classifier", self.call_input_classifier)  # Comentado - removendo classificador
+        workflow.add_node("input_classifier", self.call_input_classifier)
         workflow.add_node("greeting_agent", self.greeting_agent)
-        workflow.add_node("out_of_scope_agent", self.out_of_scope_agent)
+        workflow.add_node("out_of_scope_agent", self.out_of_scope_agent)  # Novo nó para tópicos fora do escopo
         workflow.add_node("date_extraction", self.call_date_extractor)
         workflow.add_node("mr_camp_enrich_agent", self.call_model_mr_camp_enrich)
         workflow.add_node("query_examples", self.query_examples)
@@ -305,28 +478,27 @@ class MrAgent():
         # Definir nó END
         workflow.add_node("END", lambda state: state)
 
-        # Definir ponto de entrada - Alterado para começar direto na extração de data
-        workflow.set_entry_point("date_extraction")
+        # Definir ponto de entrada
+        workflow.set_entry_point("input_classifier")
 
-        # Comentado - removendo o classificador de entrada e suas arestas condicionais
-        # workflow.add_conditional_edges(
-        #     "input_classifier",
-        #     self.is_valid_request,
-        #     {
-        #         "greeting": "greeting_agent",
-        #         "data_request": "date_extraction",
-        #         "out_of_scope": "out_of_scope_agent"
-        #     }
-        # )
+        # Adicionar arestas condicionais para classificador de entrada
+        workflow.add_conditional_edges(
+            "input_classifier",
+            self.is_valid_request,
+            {
+                "greeting": "greeting_agent",
+                "data_request": "date_extraction",  # Aqui é onde o fluxo de requisicao_dados começa
+                "out_of_scope": "out_of_scope_agent"
+            }
+        )
 
-        # Adicionar aresta para greeting_agent até END - mantido para possível uso futuro
+        # Adicionar aresta para greeting_agent até END
         workflow.add_edge("greeting_agent", "END")
 
-        # Adicionar aresta para out_of_scope_agent até END - mantido para possível uso futuro
+        # Adicionar aresta para out_of_scope_agent até END
         workflow.add_edge("out_of_scope_agent", "END")
 
         # Adicionar arestas para fluxo de requisição de dados
-        # Agora o fluxo começa diretamente em date_extraction
         workflow.add_edge("date_extraction", "mr_camp_enrich_agent")
         workflow.add_edge("mr_camp_enrich_agent", "query_examples")
         workflow.add_edge("query_examples", "query_generation")
