@@ -8,7 +8,7 @@ import sys
 import time 
 from datetime import datetime, timedelta 
 from dateutil.relativedelta import relativedelta
-from typing import Annotated, List, Sequence, TypeDict 
+from typing import Annotated, List, Sequence, TypedDict 
 # import plotly 
 from IPython.display import display
 # import pyplot 
@@ -83,16 +83,16 @@ class MrAgent():
     def __init__(self):
 
         # Metadata
-        with open('config.yaml', 'r') as f:
+        with open('src/data/metadata.yaml', 'r') as f:
             self.metadata = yaml.safe_load(f)
 
         # LLM Config
-        with open('llm_config.yaml', 'r') as f:
+        with open('src/config/llm_config.yaml', 'r') as f:
             self.llm_config = yaml.safe_load(f)
 
         # initialize LLM with configuration
         self.llm = ChatOpenAI(
-            temperature=self.llm_config['model'],
+            model=self.llm_config['model'],
             temperature=self.llm_config['temperature'],
             seed=self.metadata['seed'],
         )
@@ -124,7 +124,7 @@ class MrAgent():
         )
 
         # PROMPT SUGESTAO DE PERGUNTAS
-        self.sugestao_pergunta_prompt = ChatPromptTemplate.from_messages(
+        self.suges_pergunta_prompt = ChatPromptTemplate.from_messages(
             [
                 ("system", SUGESTAO_PERGUNTA_PROMPT_DSC),
                 MessagesPlaceholder(variable_name="memory"),
@@ -150,27 +150,46 @@ class MrAgent():
             ]
         )
 
-        # Inicializa o modelo de classificação de entrada
+        # Inicializa o modelo de classificação de entrada com suporte a out_of_scope
         self.input_classifier_prompt = ChatPromptTemplate.from_messages([
-            ("system", "Você é um especialista em classificar consultas de usuários. Determine se a entrada é uma saudação ou uma solicitação de dados. Responda apenas com 'saudacao' ou 'requisicao_dados'."),
+            ("system", """Você é um especialista em classificar consultas de usuários. 
+            
+            Determine se a entrada do usuário é:
+            1. Uma saudação simples
+            2. Uma solicitação de dados sobre CRM bancário/campanhas do Itaú Unibanco
+            3. Um assunto fora do escopo (perguntas sobre política, futebol, entretenimento, receitas, ou qualquer outro tópico não relacionado a CRM bancário, métricas de engajamento ou acompanhamento de campanhas do Itaú)
+            
+            Responda apenas com uma das seguintes opções:
+            - "saudacao": para cumprimentos simples
+            - "requisicao_dados": para perguntas sobre métricas, campanhas e dados bancários
+            - "out_of_scope": para qualquer assunto não relacionado a CRM bancário do Itaú
+            
+            Lembre-se: como assistente especializado em CRM Bancário do Itaú Unibanco, você deve identificar qualquer consulta não relacionada a métricas de engajamento e campanhas como "out_of_scope".
+            """),
             ("user", "{question}")
         ])
-        self.input_classifier_model = self.input_classifier_prompt | ChatOpenAI(
-            model=self.llm_config["model"],
-            temperature=0.0,
-            seed=self.metadata["seed"]
-        )
+        self.input_classifier_model = self.input_classifier_prompt | self.llm
+
+        # Inicializa o modelo para responder consultas fora do escopo
+        self.out_of_scope_prompt = ChatPromptTemplate.from_messages([
+            ("system", """Você é um assistente especializado em CRM Bancário do Itaú Unibanco.
+            
+            O usuário fez uma pergunta que está fora do seu escopo de conhecimento.
+            
+            Por favor, explique educadamente que você é um assistente especializado em métricas de engajamento e acompanhamento de campanhas bancárias do Itaú Unibanco, e não pode responder a essa pergunta.
+            
+            Ofereça ajuda com tópicos relacionados ao seu domínio de especialidade.
+            """),
+            ("user", "{question}")
+        ])
+        self.out_of_scope_model = self.out_of_scope_prompt | self.llm
 
         # Inicializa o modelo de saudação
         self.greeting_prompt = ChatPromptTemplate.from_messages([
             ("system", "Você é um assistente de IA amigável. Responda à saudação do usuário de maneira profissional e cordial em português brasileiro."),
             ("user", "{question}")
         ])
-        self.greeting_model = self.greeting_prompt | ChatOpenAI(
-            model=self.llm_config["model"],
-            temperature=self.llm_config["temperature"],
-            seed=self.metadata["seed"]
-        )
+        self.greeting_model = self.greeting_prompt | self.llm
 
         # Inicializa o modelo de exemplos de consultas
         self.query_examples_prompt = ChatPromptTemplate.from_messages([
@@ -179,22 +198,14 @@ class MrAgent():
             MessagesPlaceholder(variable_name="messages"),
             ("user", "Encontre exemplos de consulta relevantes para: {question}")
         ])
-        self.query_examples_model = self.query_examples_prompt | ChatOpenAI(
-            model=self.llm_config["model"],
-            temperature=self.llm_config["temperature"],
-            seed=self.metadata["seed"]
-        )
+        self.query_examples_model = self.query_examples_prompt | self.llm
 
         # Inicializa o modelo de validação SQL
         self.sql_validation_prompt = ChatPromptTemplate.from_messages([
             ("system", "Você é um especialista em SQL para AWS Athena. Valide a consulta SQL fornecida quanto a erros de sintaxe e melhores práticas."),
             ("user", "Valide a seguinte consulta para AWS Athena: {query}")
         ])
-        self.sql_validation_model = self.sql_validation_prompt | ChatOpenAI(
-            model=self.llm_config["model"],
-            temperature=0.0,
-            seed=self.metadata["seed"]
-        ).bind_tools([
+        self.sql_validation_model = self.sql_validation_prompt | self.llm.bind_tools([
             {
                 "type": "function",
                 "function": {
@@ -237,40 +248,19 @@ class MrAgent():
 
         # Agente enriquecedor maquina de resultados campanha 
         self.enrich_mr_camp_prompt = self.enrich_mr_camp_prompt.partial(table_description_mr=pdt.get_qstring_mr_camp())
-        # 
-
-        self.model_enrich_mr_camp = self.enrich_mr_camp_prompt | ChatOpenAI(
-            temperature=self.llm_config['model'],
-            temperature=self.llm_config['temperature'],
-            seed=self.metadata['seed'],
-        )
+        self.model_enrich_mr_camp = self.enrich_mr_camp_prompt | self.llm
 
         # Agente maquina de resuldaos campanha 
         self.mr_camp_prompt = self.mr_camp_prompt.partial(table_description_mr=pdt.get_qstring_mr_camp())
-        #
-
-        self.model_mr_camp = self.mr_camp_prompt | ChatOpenAI(
-            temperature=self.llm_config['model'],
-            temperature=self.llm_config['temperature'],
-            seed=self.metadata['seed'],
-        )
-        #
-        # #
-        # 
-        # Defube date tool 
+        self.model_mr_camp = self.mr_camp_prompt | self.llm
+        
+        # Define date tool 
         last_ref = (datetime.strptime(str(max(pdt.get_refs())), '%Y%m') + timedelta(months=1)).strftime('%Y-%m-%d')
-
-        # Get akk dates ref of the dataframe 
         dates = pdt.get_dates()
-
         self.date_prompt = self.date_prompt.partial(last_ref=last_ref)
         self.date_prompt = self.date_prompt.partial(datas_disponiveis=dates)
 
-        date_llm = self.date_prompt | ChatOpenAI(
-            temperature=self.llm_config['model'],
-            temperature=self.llm_config['temperature'],
-            seed=self.metadata['seed'],
-        ).bind_tools([DateToolDesc], tool_choice='DateToolDesc')
+        date_llm = self.date_prompt | self.llm.bind_tools([DateToolDesc], tool_choice='DateToolDesc')
 
         partial_model = self.date_prompt | date_llm | JsonOutputKeyToolsParser(key_name='DateToolDesc') | (lambda x: x[0]['pandas_str'])
         self.date_extractor = RunnableParallel(pandas_str=partial_model, refs_list=lambda x: pdt.get_refs()) | date_tool 
@@ -278,27 +268,15 @@ class MrAgent():
         # Inclusão do modelo para verificação da pergunta
         self.suges_pergunta_prompt = self.suges_pergunta_prompt.partial(table_desc=pdt.get_qstring_mr_camp())
         self.suges_pergunta_prompt = self.suges_pergunta_prompt.partial(metadados=dt.get_col_context_mr_camp())
-        self.sugest_model = self.suges_pergunta_prompt | ChatOpenAI(
-            model=self.llm_config["model"],
-            temperature=self.llm_config["temperature"],
-            seed=self.llm_config["seed"]
-        )
+        self.sugest_model = self.suges_pergunta_prompt | self.llm
 
         # Inclusão do verificador de resposta
         self.resposta_prompt = self.resposta_prompt.partial(table_desc=pdt.get_qstring_mr_camp())
         self.resposta_prompt = self.resposta_prompt.partial(metadados=dt.get_col_context_mr_camp())
-        self.resposta_model = self.resposta_prompt | ChatOpenAI(
-            model=self.llm_config["model"],
-            temperature=self.llm_config["temperature"],
-            seed=self.llm_config["seed"]
-        ).bind_tools([ask_more_info], parallel_tool_calls=False)
+        self.resposta_model = self.resposta_prompt | self.llm.bind_tools([ask_more_info], parallel_tool_calls=False)
 
         # Inclusão do verificador do gerador de queries
-        self.model_query_generator = self.query_generation_prompt | ChatOpenAI(
-            model=self.llm_config["model"],
-            temperature=self.llm_config["temperature"],
-            seed=self.llm_config["seed"]
-        ).bind_tools(tools, parallel_tool_calls=False, tool_choice='run_query')
+        self.model_query_generator = self.query_generation_prompt | self.llm.bind_tools(tools, parallel_tool_calls=False, tool_choice='run_query')
 
         # Construção do workflow
         self.build_workflow()
@@ -312,10 +290,13 @@ class MrAgent():
         response = self.input_classifier_model.invoke({"question": question})
         return {"messages": [response]}
 
-    # Método para determinar se a solicitação é saudação ou requisição de dados
+    # Método para determinar se a solicitação é saudação ou requisição de dados ou fora do escopo
     def is_valid_request(self, state):
         """
-        Utiliza o LLM para classificar a intenção do usuário como saudação ou requisição de dados.
+        Utiliza o LLM para classificar a intenção do usuário como:
+        - saudação
+        - requisição de dados
+        - fora do escopo
         """
         last_message = state['messages'][-1]
         content = last_message.content.lower()
@@ -323,21 +304,22 @@ class MrAgent():
         # Preparar o prompt para classificação
         classification_prompt = ChatPromptTemplate.from_messages([
             ("system", """Você é um especialista em classificar mensagens dos usuários.
-            Analise a mensagem e determine se é apenas uma saudação ou se é uma requisição de dados.
+            
+            Analise a mensagem e determine se é:
+            1. Uma saudação simples
+            2. Uma solicitação de dados sobre CRM bancário/campanhas do Itaú
+            3. Um tópico fora do escopo do agente
             
             Exemplos de saudações: olá, bom dia, oi, como vai, tudo bem
-            Exemplos de requisição de dados: me mostre, quero saber sobre, qual foi, quantos, analise, gere um relatório
+            Exemplos de requisição de dados: me mostre métricas de campanha, quantos clientes responderam, qual a taxa de conversão, análise de desempenho da campanha
+            Exemplos de tópicos fora do escopo: política, futebol, receitas, filmes, clima, notícias gerais, ou qualquer assunto não relacionado a CRM bancário do Itaú
             
-            Classifique APENAS como "saudacao" ou "requisicao_dados". Responda com uma única palavra."""),
+            Classifique APENAS como "saudacao", "requisicao_dados" ou "out_of_scope". Responda com uma única palavra."""),
             ("user", content)
         ])
         
         # Usar o modelo para classificar
-        classifier = classification_prompt | ChatOpenAI(
-            model=self.llm_config["model"],
-            temperature=0.0,
-            seed=self.metadata["seed"]
-        )
+        classifier = classification_prompt | self.llm.with_options(temperature=0.0)
         
         # Obter a classificação do modelo
         result = classifier.invoke({})
@@ -348,6 +330,8 @@ class MrAgent():
         # Retornar com base na classificação do modelo
         if "saudacao" in classification:
             return "greeting"
+        elif "out_of_scope" in classification:
+            return "out_of_scope"
         else:
             return "data_request"
 
@@ -358,6 +342,15 @@ class MrAgent():
         """
         question = state["question"]
         response = self.greeting_model.invoke({"question": question})
+        return {"messages": [response]}
+
+    # Método para processar solicitações fora do escopo
+    def out_of_scope_agent(self, state):
+        """
+        Processa perguntas fora do escopo e retorna uma mensagem informativa.
+        """
+        question = state["question"]
+        response = self.out_of_scope_model.invoke({"question": question})
         return {"messages": [response]}
 
     # Método para buscar exemplos de consulta relevantes
@@ -449,6 +442,7 @@ class MrAgent():
         # Adicionar nós
         workflow.add_node("input_classifier", self.call_input_classifier)
         workflow.add_node("greeting_agent", self.greeting_agent)
+        workflow.add_node("out_of_scope_agent", self.out_of_scope_agent)  # Novo nó para tópicos fora do escopo
         workflow.add_node("date_extraction", self.call_date_extractor)
         workflow.add_node("mr_camp_enrich_agent", self.call_model_mr_camp_enrich)
         workflow.add_node("query_examples", self.query_examples)
@@ -471,12 +465,16 @@ class MrAgent():
             self.is_valid_request,
             {
                 "greeting": "greeting_agent",
-                "data_request": "date_extraction"
+                "data_request": "date_extraction",
+                "out_of_scope": "out_of_scope_agent"  # Nova aresta para tópicos fora do escopo
             }
         )
 
         # Adicionar aresta para greeting_agent até END
         workflow.add_edge("greeting_agent", "END")
+
+        # Adicionar aresta para out_of_scope_agent até END
+        workflow.add_edge("out_of_scope_agent", "END")
 
         # Adicionar arestas para fluxo de requisição de dados
         workflow.add_edge("date_extraction", "mr_camp_enrich_agent")
@@ -539,7 +537,7 @@ class MrAgent():
 
 
             # if the tool s to evaluate chain the chain 
-            if last_message.additional_kwargs['tool_calls'][idx]['function']['name'] == 'run_query'
+            if last_message.additional_kwargs['tool_calls'][idx]['function']['name'] == 'run_query':
              #
              #
              #
