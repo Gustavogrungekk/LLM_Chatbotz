@@ -308,77 +308,51 @@ class MrAgent():
         print(f"DEBUG - ANALISANDO CONTEÚDO: '{content}'")
         
         # Verificação rápida de palavras-chave antes da classificação pelo LLM
-        # Palavras associadas a métricas de engajamento bancário - EXPANDIDA
-        engagement_keywords = [
-            'métrica', 'metricas', 'engajamento', 'campanha', 'campanhas',
-            'cliente', 'clientes', 'ativos', 'ativo', 'conversão', 'taxa', 'performance', 'desempenho',
-            'crm', 'itaú', 'itau', 'banco', 'bancário', 'bancária', 'mr', 
-            'visualizações', 'cliques', 'envios', 'aberturas', 'resultado',
-            'canal', 'mobile', 'celular', 'app', 'cartão', 'cartao', 'cartões', 'cartoes',
-            'empresas', 'empresa', 'negócios', 'negocio', 'funil', 'conversão', 
-            'quantidade', 'total', 'número', 'numero'
-        ]
+        # ...existing code...
         
-        # FORÇA BRUTA: Para perguntas muito comuns sobre clientes - garantir detecção adequada
-        common_queries = [
-            'quantidade de clientes', 'clientes ativos', 'total de clientes', 
-            'funil', 'canal mobile', 'cartão empresas'
-        ]
-        
-        # Verificar palavras-chave individualmente
-        for keyword in engagement_keywords:
-            if keyword in content:
-                print(f"DEBUG - Classificação por palavra-chave: 'requisicao_dados' (palavra encontrada: '{keyword}')")
-                return "data_request"
-        
-        # Verificar frases comuns
-        for query in common_queries:
-            if query in content:
-                print(f"DEBUG - Classificação por frase comum: 'requisicao_dados' (frase encontrada: '{query}')")
-                return "data_request"
-        
-        # Verificação especial para perguntas sobre "quantidade" ou "quantos" seguido de qualquer termo bancário
-        if ('quantidade' in content or 'quantos' in content or 'qual' in content) and any(term in content for term in ['cliente', 'clientes', 'ativos', 'cartão', 'cartao', 'conta', 'contas']):
-            print(f"DEBUG - Classificação por padrão de pergunta: 'requisicao_dados'")
-            return "data_request"
-            
         # Se não encontrou palavras-chave, continua com a classificação via LLM
-        # ...existing code with LLM classification...
-        
-        print(f"Classificação via LLM: '{classification}'")
-        print(f"Conteúdo original: '{content}'")
-        
-        # Verificação adicional para garantir classificação correta
-        if "requisicao" in classification:
-            return "data_request"
-        elif "saudacao" in classification:
-            return "greeting"
-        else:
-            # Verificação final para termos bancários antes de desistir
-            # Expandir a lista de termos bancários
-            banking_terms = [
-                'banco', 'bancário', 'bancaria', 'itau', 'itaú', 'crm', 'mr', 
-                'cliente', 'clientes', 'campanha', 'campanhas', 'canal', 'funil',
-                'cartão', 'cartao', 'mobile', 'empresa', 'empresas', 'ativo', 'ativos',
-                'conta', 'contas', 'engajamento', 'taxa', 'métricas', 'metricas'
-            ]
+        classification_prompt = ChatPromptTemplate.from_messages([
+            ("system", """Você é um especialista em classificar mensagens para um assistente de CRM bancário.
             
-            for term in banking_terms:
-                if term in content:
-                    print(f"DEBUG - Classificação corrigida para 'data_request' por conter termo bancário: {term}")
-                    return "data_request"
-                    
-            # ÚLTIMA TENTATIVA: Se tiver qualquer referência a números ou datas, provável que seja requisição de dados
-            numeric_indicators = ['quantidade', 'quantos', 'total', 'número', 'numero', '%', 'percentual']
-            time_indicators = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 
-                              'agosto', 'setembro', 'outubro', 'novembro', 'dezembro', 
-                              '2023', '2024', '2025', 'mês', 'mes', 'ano', 'semana', 'dia']
+            CLASSIFICAÇÃO PRECISA:
+            - "saudacao": APENAS para cumprimentos como olá, oi, bom dia.
+            - "requisicao_dados": para QUALQUER pergunta sobre métricas, campanhas, clientes ou dados bancários.
+            - "out_of_scope": para tópicos completamente não relacionados a bancos (política, filmes, etc).
             
-            if any(indicator in content for indicator in numeric_indicators + time_indicators):
-                print(f"DEBUG - Última tentativa: classificado como 'data_request' por conter indicador numérico ou temporal")
-                return "data_request"
-                
-            return "out_of_scope"
+            SEMPRE classifique como "requisicao_dados" qualquer pergunta sobre:
+            - Métricas de engajamento
+            - Taxa de conversão
+            - Desempenho de campanha
+            - Quantidade de clientes
+            - Visualizações/cliques
+            - Analytics
+            - Relatórios
+            - Dashboard
+            - Estatísticas bancárias
+            - MR (Máquina de Resultados)
+            - CRM bancário
+            
+            Exemplos de "requisicao_dados":
+            - "Como foi o desempenho da campanha X?"
+            - "Quero saber sobre engajamento"
+            - "Me fale das métricas de conversão"
+            - "Quantos clientes acessaram o aplicativo?"
+            - "Me mostre as taxas de resposta"
+            - "Qual foi o resultado da última campanha?"
+            
+            RESPONDA APENAS COM UMA ÚNICA PALAVRA: "saudacao", "requisicao_dados" ou "out_of_scope".
+            """),
+            ("user", content)
+        ])
+        
+        # Usar o modelo para classificar
+        classifier = classification_prompt | self.llm
+        
+        # Obter a classificação do modelo
+        result = classifier.invoke({})
+        classification = result.content.lower().strip()
+        
+        # ...existing code...
 
     # Método para processar saudações
     def greeting_agent(self, state):
