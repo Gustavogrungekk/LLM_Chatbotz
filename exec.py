@@ -56,7 +56,7 @@ from rag_tools.prompts import (
     )
 
 
-os.environ['REQUESTS_CA_BUNDLE'] = '/etc/ssl/certs/ca-certificates.crt'
+os.environ['REQUESTS_CA_BUNDLE'] = 'ca_bundle.crt'
 
 # Apos pegar a chave deleta a variable de ambiente por dconta de conflitos 
 del os.environ['REQUESTS_CA_BUNDLE']
@@ -64,7 +64,7 @@ del os.environ['REQUESTS_CA_BUNDLE']
 # llm 
 
 # Definicicao do estado do agente 
-class AgentState(TypeDict):
+class AgentState(TypedDict):
     messages: Annotated[Sequence[BaseMessage], operator.add]
     actions: Annotated[Sequence[List], operator.add]
     inter: pd.DataFrame
@@ -83,7 +83,7 @@ class MrAgent():
     def __init__(self):
 
         # Metadata
-        with open('src/data/metadata.yaml', 'r') as f:
+        with open('src/data/metadata/metadata.yaml', 'r') as f:
             self.metadata = yaml.safe_load(f)
 
         # LLM Config
@@ -133,7 +133,7 @@ class MrAgent():
         )
 
         # PROMPT RESPOSTA 
-        self.resp_prompt = ChatPromptTemplate.from_messages(
+        self.resposta_prompt = ChatPromptTemplate.from_messages(
             [
                 ("system", RESP_PROMPT_DSC),
                 MessagesPlaceholder(variable_name="memory"),
@@ -164,8 +164,7 @@ class MrAgent():
             - "requisicao_dados": para perguntas sobre métricas, campanhas e dados bancários
             - "out_of_scope": para qualquer assunto não relacionado a CRM bancário do Itaú
             
-            Lembre-se: como assistente especializado em CRM Bancário do Itaú Unibanco, você deve identificar qualquer consulta não relacionada a métricas de engajamento e campanhas como "out_of_scope".
-            """),
+            Lembre-se: como assistente especializado em CRM Bancário do Itaú Unibanco, você deve identificar qualquer consulta não relacionada a métricas de engajamento e campanhas como "out_of_scope"."""),
             ("user", "{question}")
         ])
         self.input_classifier_model = self.input_classifier_prompt | self.llm
@@ -237,7 +236,7 @@ class MrAgent():
 
         # Inicializa a ferramenta Document
         dt = DocumentTool()
-        tool_run_query = run_query()
+        tool_run_query = run_query
 
         # Configura as ferramentas  que serao usadas 
         tools = [tool_run_query]
@@ -255,8 +254,8 @@ class MrAgent():
         self.model_mr_camp = self.mr_camp_prompt | self.llm
         
         # Define date tool 
-        last_ref = (datetime.strptime(str(max(pdt.get_refs())), '%Y%m') + timedelta(months=1)).strftime('%Y-%m-%d')
-        dates = pdt.get_dates()
+        last_ref = (datetime.strptime(str(max(pdt.get_refs())), '%Y%m') + relativedelta(months=1)).strftime('%Y/%m/%d')
+        dates = pdt.get_refs()
         self.date_prompt = self.date_prompt.partial(last_ref=last_ref)
         self.date_prompt = self.date_prompt.partial(datas_disponiveis=dates)
 
@@ -301,31 +300,52 @@ class MrAgent():
         last_message = state['messages'][-1]
         content = last_message.content.lower()
         
-        # Preparar o prompt para classificação
+        # Preparar o prompt para classificação com exemplos melhorados
         classification_prompt = ChatPromptTemplate.from_messages([
-            ("system", """Você é um especialista em classificar mensagens dos usuários.
+            ("system", """Você é um especialista em classificar mensagens dos usuários para um assistente de CRM bancário do Itaú.
             
             Analise a mensagem e determine se é:
             1. Uma saudação simples
             2. Uma solicitação de dados sobre CRM bancário/campanhas do Itaú
             3. Um tópico fora do escopo do agente
             
-            Exemplos de saudações: olá, bom dia, oi, como vai, tudo bem
-            Exemplos de requisição de dados: me mostre métricas de campanha, quantos clientes responderam, qual a taxa de conversão, análise de desempenho da campanha
-            Exemplos de tópicos fora do escopo: política, futebol, receitas, filmes, clima, notícias gerais, ou qualquer assunto não relacionado a CRM bancário do Itaú
+            Exemplos de saudações: 
+            - olá, bom dia, oi, como vai, tudo bem, quem é você
+            
+            Exemplos de requisição de dados (SEMPRE CLASSIFIQUE DÚVIDAS SOBRE DADOS BANCÁRIOS COMO "requisicao_dados"): 
+            - me mostre métricas de campanha
+            - quantos clientes visualizaram/clicaram/atuaram
+            - qual a taxa de conversão
+            - análise de desempenho da campanha
+            - qual é a quantidade de clientes ativos
+            - quantos clientes temos
+            - dados de engajamento dos clientes
+            
+            Exemplos de tópicos fora do escopo: 
+            - política, futebol, receitas culinárias, filmes, clima
+            - notícias gerais não relacionadas ao banco
+            - receitas de bolo ou outros pratos
+            - como funciona um motor de carro
+            - qual é o melhor time de futebol
+            
+            IMPORTANTE: QUALQUER pergunta sobre CLIENTES, MÉTRICAS BANCÁRIAS, CAMPANHAS, ou DADOS DE CRM deve ser classificada como "requisicao_dados".
             
             Classifique APENAS como "saudacao", "requisicao_dados" ou "out_of_scope". Responda com uma única palavra."""),
             ("user", content)
         ])
         
-        # Usar o modelo para classificar
-        classifier = classification_prompt | self.llm.with_options(temperature=0.0)
+        # Usar o modelo para classificar com temperatura mais baixa para consistência
+        classifier = classification_prompt | self.llm
         
         # Obter a classificação do modelo
         result = classifier.invoke({})
         classification = result.content.lower().strip()
         
         print(f"Classificação da mensagem: '{classification}'")
+        
+        # Adicionar mais logging para depuração
+        print(f"Conteúdo original: '{content}'")
+        print(f"Classificação final: '{classification}'")
         
         # Retornar com base na classificação do modelo
         if "saudacao" in classification:
@@ -610,9 +630,16 @@ class MrAgent():
 
         last_message = context['messages'][-1]
         query = last_message['content']
-        memory = context['memory'][:-1]
+        
+        # Fix for the KeyError: 'memory' issue
+        # Check if memory exists in context and provide a default if not
+        memory = context.get('memory', [])
+        if memory:  # Only slice if memory is not empty
+            memory = memory[:-1]
+        else:
+            memory = []  # Ensure memory is an empty list if not present
 
-        # Print the initial input state for debbuging
+        # Print the initial input state for debugging
         inputs = {
             "messages": [HumanMessage(content=query)],
             "actions": ["<BEGIN>"],
@@ -622,6 +649,7 @@ class MrAgent():
         }
         context['question'] = query
         print('DEBUG - INPUTS BEFORE STARTING WORKFLOW:', inputs)
+        print('*' * 150)
 
         try:
             current_action = []
@@ -668,9 +696,23 @@ class MrAgent():
                         if inter is not None:
                             inter_list.append(inter)
 
+                # Fix for AIMessage object has no attribute 'get'
                 final_action = current_action[-1] if current_action else ""
                 final_table = inter_list[-1] if inter_list else []
-                final_message = value.get("messages", [""])[-1].get("content", "") if "messages" in value else ""
+                
+                # Fix the final_message extraction to handle AIMessage objects properly
+                final_message = ""
+                if "messages" in value:
+                    last_message = value["messages"][-1]
+                    # Check if it's an AIMessage or similar object with direct .content attribute
+                    if hasattr(last_message, "content"):
+                        final_message = last_message.content
+                    # Otherwise, try dictionary-style access
+                    elif isinstance(last_message, dict):
+                        final_message = last_message.get("content", "")
+                    else:
+                        # As a fallback, convert to string
+                        final_message = str(last_message)
 
         except Exception as e:
             print("Houve um erro no processo:")
