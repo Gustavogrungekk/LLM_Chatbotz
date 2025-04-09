@@ -83,18 +83,18 @@ class MrAgent():
     def __init__(self):
 
         # Metadata
-        with open('src/data/metadata/metadata.yaml', 'r') as f:
+        with open('src/data/metadata/metadata.yaml', 'r', encoding='utf-8') as f:
             self.metadata = yaml.safe_load(f)
 
         # LLM Config
-        with open('src/config/llm_config.yaml', 'r') as f:
+        with open('src/config/llm_config.yaml', 'r', encoding='utf-8') as f:
             self.llm_config = yaml.safe_load(f)
 
         # initialize LLM with configuration
         self.llm = ChatOpenAI(
             model=self.llm_config['model'],
             temperature=self.llm_config['temperature'],
-            seed=self.metadata['seed'],
+            seed=self.llm_config['seed'],
         )
 
         # Prompt date extraction 
@@ -185,7 +185,11 @@ class MrAgent():
 
         # Inicializa o modelo de saudação
         self.greeting_prompt = ChatPromptTemplate.from_messages([
-            ("system", "Você é um assistente de IA amigável. Responda à saudação do usuário de maneira profissional e cordial em português brasileiro."),
+            ("system", """Você é um assistente especializado em campanhas de engajamento ao cliente e resultados de CRM bancário do Itaú Unibanco.
+            
+            Você foi projetado para responder dúvidas sobre a Máquina de Resultados (MR), uma ferramenta/painel dashboardo de análise de métricas de campanhas bancárias de CRM.
+            
+            Responda às saudações do usuário de maneira profissional e cordial em português brasileiro, apresentando-se como especialista em CRM bancário e análise de campanhas do sistema Máquina de Resultados."""),
             ("user", "{question}")
         ])
         self.greeting_model = self.greeting_prompt | self.llm
@@ -342,8 +346,6 @@ class MrAgent():
         classification = result.content.lower().strip()
         
         print(f"Classificação da mensagem: '{classification}'")
-        
-        # Adicionar mais logging para depuração
         print(f"Conteúdo original: '{content}'")
         print(f"Classificação final: '{classification}'")
         
@@ -485,8 +487,8 @@ class MrAgent():
             self.is_valid_request,
             {
                 "greeting": "greeting_agent",
-                "data_request": "date_extraction",
-                "out_of_scope": "out_of_scope_agent"  # Nova aresta para tópicos fora do escopo
+                "data_request": "date_extraction",  # Aqui é onde o fluxo de requisicao_dados começa
+                "out_of_scope": "out_of_scope_agent"
             }
         )
 
