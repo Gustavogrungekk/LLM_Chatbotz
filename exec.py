@@ -8,7 +8,7 @@ import sys
 import time 
 from datetime import datetime, timedelta 
 from dateutil.relativedelta import relativedelta
-from typing import Annotated, List, Sequence, TypeDict 
+from typing import Annotated, List, Sequence, TypedDict 
 # import plotly 
 from IPython.display import display
 # import pyplot 
@@ -56,7 +56,7 @@ from rag_tools.prompts import (
     )
 
 
-os.environ['REQUESTS_CA_BUNDLE'] = '/etc/ssl/certs/ca-certificates.crt'
+os.environ['REQUESTS_CA_BUNDLE'] = 'ca_bundle.crt'
 
 # Apos pegar a chave deleta a variable de ambiente por dconta de conflitos 
 del os.environ['REQUESTS_CA_BUNDLE']
@@ -64,7 +64,7 @@ del os.environ['REQUESTS_CA_BUNDLE']
 # llm 
 
 # Definicicao do estado do agente 
-class AgentState(TypeDict):
+class AgentState(TypedDict):
     messages: Annotated[Sequence[BaseMessage], operator.add]
     actions: Annotated[Sequence[List], operator.add]
     inter: pd.DataFrame
@@ -83,18 +83,18 @@ class MrAgent():
     def __init__(self):
 
         # Metadata
-        with open('config.yaml', 'r') as f:
+        with open('src/data/metadata/metadata.yaml', 'r') as f:
             self.metadata = yaml.safe_load(f)
 
         # LLM Config
-        with open('llm_config.yaml', 'r') as f:
+        with open('src/config/llm_config.yaml', 'r') as f:
             self.llm_config = yaml.safe_load(f)
 
         # initialize LLM with configuration
         self.llm = ChatOpenAI(
             temperature=self.llm_config['model'],
             temperature=self.llm_config['temperature'],
-            seed=self.metadata['seed'],
+            seed=self.llm_config['seed'],
         )
 
         # Prompt date extraction 
@@ -124,7 +124,7 @@ class MrAgent():
         )
 
         # PROMPT SUGESTAO DE PERGUNTAS
-        self.sugestao_pergunta_prompt = ChatPromptTemplate.from_messages(
+        self.suges_pergunta_prompt = ChatPromptTemplate.from_messages(
             [
                 ("system", SUGESTAO_PERGUNTA_PROMPT_DSC),
                 MessagesPlaceholder(variable_name="memory"),
@@ -133,7 +133,7 @@ class MrAgent():
         )
 
         # PROMPT RESPOSTA 
-        self.resp_prompt = ChatPromptTemplate.from_messages(
+        self.resposta_prompt = ChatPromptTemplate.from_messages(
             [
                 ("system", RESP_PROMPT_DSC),
                 MessagesPlaceholder(variable_name="memory"),
@@ -190,10 +190,10 @@ class MrAgent():
         # #
         # 
         # Defube date tool 
-        last_ref = (datetime.strptime(str(max(pdt.get_refs())), '%Y%m') + timedelta(months=1)).strftime('%Y-%m-%d')
+        last_ref = (datetime.strptime(str(max(pdt.get_refs())), '%Y%m') + relativedelta(months=1)).strftime('%Y/%m/%d')
 
         # Get akk dates ref of the dataframe 
-        dates = pdt.get_dates()
+        dates = pdt.get_refs()
 
         self.date_prompt = self.date_prompt.partial(last_ref=last_ref)
         self.date_prompt = self.date_prompt.partial(datas_disponiveis=dates)
@@ -439,47 +439,47 @@ class MrAgent():
 
 
             # if the tool s to evaluate chain the chain 
-            if last_message.additional_kwargs['tool_calls'][idx]['function']['name'] == 'run_query'
-             #
-             #
-             #
+            if last_message.additional_kwargs['tool_calls'][idx]['function']['name'] == 'run_query':
+                #
+                #
+                #
 
-             # We construct an toolinvocation from the function
-             action = ToolInvocation(
-                 tool = last_message.additional_kwargs['tool_calls'][idx]['function']['name'],
-                    tool_input = tool_input_dict,
-             )
-            # w call the tool_executor and get back a response
-            # response, attempted_action, inter = self.tool_executor.invoke(action)
-            query, df = self.tool_executor.invoke(action)
-            response = df.to_string()
+                # We construct an toolinvocation from the function
+                action = ToolInvocation(
+                    tool = last_message.additional_kwargs['tool_calls'][idx]['function']['name'],
+                        tool_input = tool_input_dict,
+                )
+                # w call the tool_executor and get back a response
+                # response, attempted_action, inter = self.tool_executor.invoke(action)
+                query, df = self.tool_executor.invoke(action)
+                response = df.to_string()
 
-            success_info = f"""
-            Voce criou o codigo:
-            {query}
-    
-            E Essa foi a tabela resultante:
-            {response}
-            
-            Voce deve responder a seguinte pergunta
-            {state['question']}
-            """
-            print(success_info)
+                success_info = f"""
+                Voce criou o codigo:
+                {query}
+        
+                E Essa foi a tabela resultante:
+                {response}
+                
+                Voce deve responder a seguinte pergunta
+                {state['question']}
+                """
+                print(success_info)
 
-            # We use the response to create a FunctionMessage
-            function_message = ToolMessage(
-                content=str(success_info), name=action.tool, tool_call_id=["id"]
-            )
+                # We use the response to create a FunctionMessage
+                function_message = ToolMessage(
+                    content=str(success_info), name=action.tool, tool_call_id=["id"]
+                )
 
-            # We return a list, because it will get added to the existing list 
-            output_dict['messages'].append(function_message)
-            output_dict['actions'] = [query]
-            output_dict['df'] = df
+                # We return a list, because it will get added to the existing list 
+                output_dict['messages'].append(function_message)
+                output_dict['actions'] = [query]
+                output_dict['df'] = df
 
-        print("OUTPUT TOOL:")
-        print(output_dict)
+            print("OUTPUT TOOL:")
+            print(output_dict)
 
-        return output_dict
+            return output_dict
     
     def call_model_mr_camp_envich(self, state):
         response = self.model_envich_mr_camp.invoke(state)
