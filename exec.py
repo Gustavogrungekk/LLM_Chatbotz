@@ -158,7 +158,7 @@ class MrAgent():
 
         # Inicializa a ferramenta Document
         dt = DocumentTool()
-        tool_run_query = run_query()
+        tool_run_query = run_query
 
         # Configura as ferramentas  que serao usadas 
         tools = [tool_run_query]
@@ -218,7 +218,7 @@ class MrAgent():
 
         last_message = context['messages'][-1]
         query = last_message['content']
-        memory = context['memory'][:-1]
+        memory = context.get('memory', [])[:-1] if context.get('memory', []) else []
 
         # Print the initial input state for debbuging
         inputs = {
@@ -331,14 +331,6 @@ class MrAgent():
             [f"[example['description']]:\n{example['sql']}" for example in self.metadata["table_config"]["query_examples"]]
         )
 
-        _ = self.query_generation_prompt.partial(
-            forbidden_operations=forbidden_operations,
-            maximum_rows=maximum_rows,
-            metadata=metadata_str,
-            query_guidelines=query_guidelines,
-            question=question,
-            query_examples=query_examples,
-        )
         response = self.model_query_generator.invoke({
             "forbidden_operations": forbidden_operations,
             "maximum_rows": maximum_rows,
@@ -347,6 +339,7 @@ class MrAgent():
             "question": question,
             "query_examples": query_examples,
             "messages": state["messages"],
+            "memory": state.get("memory", [])
         })
 
         return {"messages": [response]}
@@ -360,7 +353,6 @@ class MrAgent():
         workflow.add_node("mr_camp_enrich_agent", self.call_model_mr_camp_enrich)
         workflow.add_node("mr_camp_action", self.call_tool)
         workflow.add_node("add_count", self.add_count)
-        # workflow.add_edge("query_agent", "add_count")
         workflow.add_node("sugest_pergunta", self.call_sugest_pergunta)
         workflow.add_node("resposta", self.call_resposta)
 
@@ -457,26 +449,37 @@ class MrAgent():
 
             return output_dict
     
-    def call_model_mr_camp_envich(self, state):
-        response = self.model_envich_mr_camp.invoke(state)
+    def call_model_mr_camp_enrich(self, state):
+        response = self.model_enrich_mr_camp.invoke({
+            "messages": state["messages"],
+            "memory": state.get("memory", [])
+        })
         return {"messages": [response]}
 
     def call_date_extractor(self, state):
-        date_list = self.date_extractor.invoke(state)
+        date_list = self.date_extractor.invoke({
+            "question": state["question"],
+            "memory": state.get("memory", [])
+        })
         return {"date_filter": date_list}
 
-    def call_suggest_pergunta(self, state):
-        sugestao = self.sugest_model.invoke(state)
-        return {"messages": [sugestao]}  # Fixed typo in variable name
+    def call_sugest_pergunta(self, state):
+        sugestao = self.sugest_model.invoke({
+            "question": state["question"],
+            "memory": state.get("memory", [])
+        })
+        return {"messages": [sugestao]}
 
     def call_resposta(self, state):
-        resposta = self.resposta_model.invoke(state)
-        print("RESPOSTA AQUI -->", resposta)  # Fixed typo in print message
+        resposta = self.resposta_model.invoke({
+            "messages": state["messages"],
+            "memory": state.get("memory", [])
+        })
+        print("RESPOSTA AQUI -->", resposta)
         
-        # Assuming resposta_tool_calls should be checking something in resposta
         if not hasattr(resposta, 'tool_calls') or not resposta.tool_calls:
             return {"messages": [resposta]}
         else:
-            resposta_text = "Mais informações necessárias:"  # Fixed typo and improved variable name
-            resposta = AIMessage(content=resposta_text)  # Assuming AIMessage is imported/defined
+            resposta_text = "Mais informações necessárias:"
+            resposta = AIMessage(content=resposta_text)
             return {"messages": [resposta]}
