@@ -92,7 +92,7 @@ class MrAgent():
 
         # initialize LLM with configuration
         self.llm = ChatOpenAI(
-            temperature=self.llm_config['model'],
+            model=self.llm_config['model'],
             temperature=self.llm_config['temperature'],
             seed=self.llm_config['seed'],
         )
@@ -171,21 +171,13 @@ class MrAgent():
         self.enrich_mr_camp_prompt = self.enrich_mr_camp_prompt.partial(table_description_mr=pdt.get_qstring_mr_camp())
         # 
 
-        self.model_enrich_mr_camp = self.enrich_mr_camp_prompt | ChatOpenAI(
-            temperature=self.llm_config['model'],
-            temperature=self.llm_config['temperature'],
-            seed=self.metadata['seed'],
-        )
+        self.model_enrich_mr_camp = self.enrich_mr_camp_prompt | self.llm
 
         # Agente maquina de resuldaos campanha 
         self.mr_camp_prompt = self.mr_camp_prompt.partial(table_description_mr=pdt.get_qstring_mr_camp())
         #
 
-        self.model_mr_camp = self.mr_camp_prompt | ChatOpenAI(
-            temperature=self.llm_config['model'],
-            temperature=self.llm_config['temperature'],
-            seed=self.metadata['seed'],
-        )
+        self.model_mr_camp = self.mr_camp_prompt | self.llm
         #
         # #
         # 
@@ -198,11 +190,7 @@ class MrAgent():
         self.date_prompt = self.date_prompt.partial(last_ref=last_ref)
         self.date_prompt = self.date_prompt.partial(datas_disponiveis=dates)
 
-        date_llm = self.date_prompt | ChatOpenAI(
-            temperature=self.llm_config['model'],
-            temperature=self.llm_config['temperature'],
-            seed=self.metadata['seed'],
-        ).bind_tools([DateToolDesc], tool_choice='DateToolDesc')
+        date_llm = self.date_prompt | self.llm.bind_tools([DateToolDesc], tool_choice='DateToolDesc')
 
         partial_model = self.date_prompt | date_llm | JsonOutputKeyToolsParser(key_name='DateToolDesc') | (lambda x: x[0]['pandas_str'])
         self.date_extractor = RunnableParallel(pandas_str=partial_model, refs_list=lambda x: pdt.get_refs()) | date_tool 
@@ -210,27 +198,15 @@ class MrAgent():
         # Inclusão do modelo para verificação da pergunta
         self.suges_pergunta_prompt = self.suges_pergunta_prompt.partial(table_desc=pdt.get_qstring_mr_camp())
         self.suges_pergunta_prompt = self.suges_pergunta_prompt.partial(metadados=dt.get_col_context_mr_camp())
-        self.sugest_model = self.suges_pergunta_prompt | ChatOpenAI(
-            model=self.llm_config["model"],
-            temperature=self.llm_config["temperature"],
-            seed=self.llm_config["seed"]
-        )
+        self.sugest_model = self.suges_pergunta_prompt | self.llm
 
         # Inclusão do verificador de resposta
         self.resposta_prompt = self.resposta_prompt.partial(table_desc=pdt.get_qstring_mr_camp())
         self.resposta_prompt = self.resposta_prompt.partial(metadados=dt.get_col_context_mr_camp())
-        self.resposta_model = self.resposta_prompt | ChatOpenAI(
-            model=self.llm_config["model"],
-            temperature=self.llm_config["temperature"],
-            seed=self.llm_config["seed"]
-        ).bind_tools([ask_more_info], parallel_tool_calls=False)
+        self.resposta_model = self.resposta_prompt | self.llm.bind_tools([ask_more_info], parallel_tool_calls=False)
 
         # Inclusão do verificador do gerador de queries
-        self.model_query_generator = self.query_generation_prompt | ChatOpenAI(
-            model=self.llm_config["model"],
-            temperature=self.llm_config["temperature"],
-            seed=self.llm_config["seed"]
-        ).bind_tools(tools, parallel_tool_calls=False, tool_choice='run_query')
+        self.model_query_generator = self.query_generation_prompt | self.llm.bind_tools(tools, parallel_tool_calls=False, tool_choice='run_query')
 
         # Construção do workflow
         self.build_workflow()
