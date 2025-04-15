@@ -370,24 +370,19 @@ class MrAgent():
             [f"{example['description']}:\n{example['sql']}" for example in self.metadata["table_config"]["query_examples"]]
         )
 
-        _ = self.query_generation_prompt.partial(
+        # Create a properly formatted prompt for the query generation
+        formatted_prompt = self.query_generation_prompt.format(
             forbidden_operations=forbidden_operations,
             maximum_rows=maximum_rows,
             metadata=metadata_str,
             query_guidelines=query_guidelines,
             question=question,
-            query_examples=query_examples,
+            query_examples=query_examples
         )
-        response = self.model_query_generator.invoke({
-            "forbidden_operations": forbidden_operations,
-            "maximum_rows": maximum_rows,
-            "metadata": metadata_str,
-            "query_guidelines": query_guidelines,
-            "question": question,
-            "query_examples": query_examples,
-            "messages": state['messages']
-        })
-       
+        
+        # Invoke the model with the properly formatted prompt
+        response = self.model_query_generator.invoke(formatted_prompt)
+        
         return {"messages": [response]}
 
     # Método para validar queries Athena
@@ -400,11 +395,12 @@ class MrAgent():
                 tool_args = json.loads(tool_call['function']['arguments'])
                 generated_query = tool_args.get("query", "")
         
-        # Validate the query
-        response = self.model_query_validator.invoke({
-            "generated_query": generated_query,
-            "messages": state["messages"]
-        })
+        # Validate the query - fix format here too
+        formatted_prompt = self.query_validator_prompt.format(
+            generated_query=generated_query,
+            messages=state["messages"]
+        )
+        response = self.model_query_validator.invoke(formatted_prompt)
         
         is_valid = "válida" in response.content.lower() and "erro" not in response.content.lower()
         
@@ -424,10 +420,9 @@ class MrAgent():
         question = state["question"]
         query_examples = self.metadata["table_config"]["query_examples"]
         
-        response = self.model_query_router.invoke({
-            "question": question,
-            "query_examples": json.dumps(query_examples, indent=2)
-        })
+        # Fix format here too
+        formatted_prompt = self.query_router_prompt.format(question=question)
+        response = self.model_query_router.invoke(formatted_prompt)
         
         # Extract matched query from response if available
         matched_example = None
@@ -444,24 +439,7 @@ class MrAgent():
             }
         else:
             # Otherwise, continue with normal flow
-            return {"messages": [HumanMessage(content="Nenhuma consulta pré-definida encontrada.")]}    
-
-    # Check if we should continue with validation or give up
-    def check_validation_status(self, state):
-        if state.get("query_is_valid", False):
-            return "valid"
-        elif state.get("validation_attempts", 0) >= 3:
-            return "failed"
-        else:
-            return "retry"
-    
-    # Method to handle validation failure
-    def handle_validation_failure(self, state):
-        failure_message = AIMessage(content="""
-        Desculpe, não consegui gerar uma consulta SQL válida para o Athena após várias tentativas. 
-        Por favor, reformule sua pergunta ou forneça detalhes adicionais para que eu possa lhe ajudar melhor.
-        """)
-        return {"messages": [failure_message]}
+            return {"messages": [HumanMessage(content="Nenhuma consulta pré-definida encontrada.")]}
 
     # Método para validar se a pergunta está dentro do escopo
     def validate_scope(self, state):
@@ -481,10 +459,12 @@ class MrAgent():
             ]
         }
         
-        response = self.model_scope_validator.invoke({
-            "question": question,
-            "permitted_topics": ", ".join(scope_context["permitted_topics"])
-        })
+        # Fix format here too
+        formatted_prompt = self.scope_validator_prompt.format(
+            question=question,
+            permitted_topics=", ".join(scope_context["permitted_topics"])
+        )
+        response = self.model_scope_validator.invoke(formatted_prompt)
         
         # Verificar se a resposta indica que está dentro do escopo
         in_scope = "dentro do escopo" in response.content.lower()
@@ -493,9 +473,27 @@ class MrAgent():
         return {
             "messages": [response] if not in_scope else state.get("messages", []),
             "in_scope": in_scope,
-            "scope_reason": reason
+            "scope_reason": reason,
+            "question": question  # Ensure question is always passed along
         }
+
+    # Check if we should continue with validation or give up
+    def check_validation_status(self, state):
+        if state.get("query_is_valid", False):
+            return "valid"
+        elif state.get("validation_attempts", 0) >= 3:
+            return "failed"
+        else:
+            return "retry"
     
+    # Method to handle validation failure
+    def handle_validation_failure(self, state):
+        failure_message = AIMessage(content="""
+        Desculpe, não consegui gerar uma consulta SQL válida para o Athena após várias tentativas. 
+        Por favor, reformule sua pergunta ou forneça detalhes adicionais para que eu possa lhe ajudar melhor.
+        """)
+        return {"messages": [failure_message]}
+
     # Método para lidar com perguntas fora do escopo
     def handle_out_of_scope(self, state):
         out_of_scope_message = AIMessage(content="""
@@ -540,14 +538,22 @@ class MrAgent():
         # Define entry point for the workflow
         workflow.set_entry_point("scope_validator")
         
-        # Add conditional edge to check scope
+        # Ensure state is preserved at each step
+        # This ensures that the 'question' key is propagated properly
+        def ensure_question_in_state(state, next_state):
+            if 'question' not in next_state and 'question' in state:
+                next_state['question'] = state['question']
+            return next_state
+            
+        # Use conditional edges with state preservation
         workflow.add_conditional_edges(
             "scope_validator",
             self.check_scope,
             {
                 "in_scope": "date_extraction",
                 "out_of_scope": "out_of_scope"
-            }
+            },
+            edge_modifier=ensure_question_in_state
         )
 
         workflow.add_edge("out_of_scope", "END")
